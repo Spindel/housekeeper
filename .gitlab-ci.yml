@@ -1,0 +1,25 @@
+stages:
+    - test
+    - publish
+
+before_script:
+    - uname -a
+
+test:
+    image: registry.gitlab.com/modioab/base-image:fedora-27-python-master
+    stage: test
+    when: always
+    script:
+        - pip3 install .[testing]
+        - python3 setup.py test
+        - python3 setup.py flake8
+
+container:
+    image: registry.gitlab.com/modioab/base-image:fedora-27-build-master
+    stage: publish
+    tags:
+        - docker
+        - x86_64
+    script:
+        - docker login -u gitlab-ci-token -p "$CI_BUILD_TOKEN" registry.gitlab.com
+        - make build-publish
