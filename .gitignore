@@ -3,3 +3,6 @@
 *.pyc
 *$py.class
 *~
+source.tar
+image.tar
+.eggs
