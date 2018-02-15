@@ -77,54 +77,45 @@ def gen_year_past():
     yield from gen_current_and_future(frm=start)
 
 
-def clean_old_indexes(table="history", year=2011, month=12):
-    cleanup = "DROP INDEX IF EXISTS {};"
-    tablename = "{table}_y{year}m{month:02d}".format(table=table,
-                                                     year=year,
-                                                     month=month)
-    oldindexes = ["{}_itemid_clock_idx".format(tablename),
-                  "{}_itemid_clock_idx1".format(tablename),
-                  "{}_itemid_clock_idx2".format(tablename)]
-    for oldindex in oldindexes:
-        yield cleanup.format(oldindex)
-
-
 def get_table_name(table="history", year=2011, month=12):
-    tablename = "{table}_y{year}m{month:02d}"
-    return tablename.format(table=table, year=year, month=month)
+    return f"{table}_y{year}m{month:02d}"
 
 
 def get_index_name(table="history", year=2011, month=12, typ="btree"):
     tablename = get_table_name(table=table, year=year, month=month)
-    indexname = "{tablename}_{typ}_idx"
-    return indexname.format(typ=typ, tablename=tablename)
+    return f"{tablename}_{typ}_idx"
+
+
+def clean_old_indexes(table="history", year=2011, month=12):
+    tablename = get_table_name(table=table, year=year, month=month)
+    oldindexes = [f"{tablename}_itemid_clock_idx",
+                  f"{tablename}_itemid_clock_idx1",
+                  f"{tablename}_itemid_clock_idx2"]
+    cleanup = "DROP INDEX IF EXISTS {};"
+    for oldindex in oldindexes:
+        yield cleanup.format(oldindex)
 
 
 def create_btree_index(table="history", year=2011, month=12):
-    create = "CREATE INDEX IF NOT EXISTS {index} on {table} using btree (itemid, clock);"
-    indexname = get_index_name(table=table, year=year, month=month, typ="btree")
-    tablename = get_table_name(table=table, year=year, month=month)
-    yield create.format(table=tablename, index=indexname)
+    index = get_index_name(table=table, year=year, month=month, typ="btree")
+    table = get_table_name(table=table, year=year, month=month)
+    yield f"CREATE INDEX IF NOT EXISTS {index} on {table} using btree (itemid, clock);"
 
 
 def create_brin_index(table="history", year=2011, month=12):
-    create = ("CREATE INDEX IF NOT EXISTS {index} on {table} "
-              "using brin (itemid, clock) WITH (pages_per_range='16');")
-    indexname = get_index_name(table=table, year=year, month=month, typ="brin")
-    tablename = get_table_name(table=table, year=year, month=month)
-    yield create.format(table=tablename, index=indexname)
+    index = get_index_name(table=table, year=year, month=month, typ="brin")
+    table = get_table_name(table=table, year=year, month=month)
+    yield f"CREATE INDEX IF NOT EXISTS {index} on {table} using brin (itemid, clock) WITH (pages_per_range='16');"
 
 
 def clean_btree_index(table="history", year=2011, month=12):
-    cleanup = "DROP INDEX IF EXISTS {index};"
-    indexname = get_index_name(table=table, year=year, month=month, typ="btree")
-    yield cleanup.format(index=indexname)
+    index = get_index_name(table=table, year=year, month=month, typ="btree")
+    yield f"DROP INDEX IF EXISTS {index};"
 
 
 def clean_old_items(table="history", year=2011, month=12):
-    cleanup = "DELETE FROM {table} WHERE itemid NOT IN (select itemid from items);"
-    tablename = get_table_name(table=table, year=year, month=month)
-    yield cleanup.format(table=tablename)
+    table = get_table_name(table=table, year=year, month=month)
+    yield f"DELETE FROM {table} WHERE itemid NOT IN (select itemid from items);"
 
 
 def create_fit_tables(table="history", year=2011, month=12):
@@ -136,17 +127,14 @@ def create_fit_tables(table="history", year=2011, month=12):
     month = start_date.month
     start, stop = int(start_date.timestamp()), int(stop_date.timestamp())
     tablename = get_table_name(table=table, year=year, month=month)
-    create = ("CREATE TABLE IF NOT EXISTS {tablename} PARTITION OF {table}"
-              " for values from ({start}) to ({stop});")
-    yield create.format(table=table, tablename=tablename, start=start, stop=stop)
+    yield f"CREATE TABLE IF NOT EXISTS {tablename} PARTITION OF {table} for values from ({start}) to ({stop});"
 
 
 def cluster_table(table="history", year=2011, month=12):
-    cluster = "CLUSTER TABLE {table} on {index};"
     tablename = get_table_name(table=table, year=year, month=month)
     indexname = get_index_name(table=table, year=year, month=month, typ="btree")
     yield from create_btree_index(table=table, year=year, month=month)
-    yield cluster.format(table=tablename, index=indexname)
+    yield f"CLUSTER TABLE {tablename} on {indexname};"
     yield from clean_btree_index(table=table, year=year, month=month)
 
 
