@@ -49,7 +49,7 @@ def connstring(filename=DBCONFIG):
     return connstr % (dbname, dbuser, dbhost, dbport, dbpass)
 
 
-def gen_year_ahead(frm=None):
+def gen_current_and_future(frm=None):
     if frm is None:
         frm = datetime.utcnow()
     else:
@@ -74,7 +74,7 @@ def gen_year_past():
     start = datetime.utcnow()
     step = monthdelta.monthdelta(13)
     start = start - step
-    yield from gen_year_ahead(frm=start)
+    yield from gen_current_and_future(frm=start)
 
 
 def clean_old_indexes(table="history", year=2011, month=12):
@@ -155,7 +155,7 @@ def do_maintenance(connstr):
 
     with psycopg2.connect(connstr) as c:
         c.autocommit = True  # Don't implicitly open a transaction
-        for date in gen_year_ahead():
+        for date in gen_current_and_future():
             for table in tables:
                 with c.cursor() as curs:
                     for x in create_fit_tables(table=table, year=date.year, month=date.month):
