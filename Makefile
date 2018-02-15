@@ -6,7 +6,7 @@ SOURCE_ARCHIVE = source.tar
 
 IMAGE_REPO = registry.gitlab.com/modioab/housekeeper
 IMAGE_ARCHIVE = image.tar
-IMAGE_FILES += $(COMPILED_ARCHIVE)
+IMAGE_FILES += $(SOURCE_ARCHIVE)
 
 .DEFAULT_GOAL = all
 include build.mk
