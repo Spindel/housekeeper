@@ -9,11 +9,12 @@ import pytz
 
 from datetime import datetime
 
+DBCONFIG = "/etc/zabbix/zabbix.conf.d/database.conf"
 
-def connstring():
-    DBCONFIG = "/etc/zabbix/zabbix.conf.d/database.conf"
-    if not os.path.isfile("/etc/zabbix/zabbix.conf.d/database.conf"):
-        print("No database config in {}".format(DBCONFIG))
+
+def connstring(filename=DBCONFIG):
+    if not os.path.isfile(filename):
+        print("No database config in {}".format(filename))
         sys.exit(1)
 # File looks like
     """
@@ -31,7 +32,7 @@ def connstring():
     dbport = "5432"
     dbpass = ""
 
-    with open(DBCONFIG) as f:
+    with open(filename) as f:
         for line in f.readlines():
             if line.startswith("DBHost="):
                 dbhost = line.split("=", 1)[1].strip()
