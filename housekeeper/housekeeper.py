@@ -117,6 +117,14 @@ def clean_btree_index(table="history", year=2011, month=12):
     yield cleanup.format(index=indexname)
 
 
+def clean_old_items(table="history", year=2011, month=12):
+    cleanup = "DELETE FROM {table} WHERE itemid NOT IN (select itemid from items);"
+    tablename = "{table}_y{year}m{month:02d}".format(table=table,
+                                                     year=year,
+                                                     month=month)
+    yield cleanup.format(table=tablename)
+
+
 def create_fit_tables(table="history", year=2011, month=12):
     step = monthdelta.monthdelta(1)
     start_date = datetime(year=year, month=month, day=1,
@@ -161,6 +169,10 @@ def do_maintenance(connstr):
 
                 with c.cursor() as curs:
                     for x in clean_old_indexes(table=table, year=date.year, month=date.month):
+                        curs.execute(x)
+
+                with c.cursor() as curs:
+                    for x in clean_old_items(table=table, year=date.year, month=date.month):
                         curs.execute(x)
 
 
