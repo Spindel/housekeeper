@@ -30,7 +30,7 @@ def main():
     """
 
     cutoff = int(time.time()) - 2 * 86400
-    dhost = "localhost"
+    dbhost = "localhost"
     dbname = "zabbix"
     dbuser = "zabbix"
     dbport = "5432"

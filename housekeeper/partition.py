@@ -31,6 +31,7 @@ def gen_quarterly_partitions(year=2010, from_table="history",
                              partition_basename="history"):
     pass
 
+
 def gen_pairs(series):
     first = list(series)
     second = iter(first)
@@ -45,7 +46,7 @@ def gen_partitions(year=2010, table="history_part"):
         month = x.month
         start, stop = int(x.timestamp()), int(y.timestamp())
         line = """create table {table}_y{year}m{month:02d} PARTITION OF {table}
-                  for values from ({start}) to ({stop});"""
+               for values from ({start}) to ({stop});"""
         yield line.format(table=table, year=year, month=month,
                           start=start, stop=stop)
 
@@ -56,13 +57,13 @@ def gen_base_partition(from_table="history", to_table="history_part"):
 
 
 def move_data(year=2010, partition_basename="history",
-                         to_table="history_part", from_table="history", max_itemid=100000):
+              to_table="history_part", from_table="history", max_itemid=100000):
 
     createline = """create table {part_table} PARTITION OF {to_table}
                      for values from ({start}) to ({stop});"""
 
-    indexold = """create index on {from_table} using btree(itemid,clock) where
-                  clock >= {start} and clock <{stop}"""
+    indexold = """create index concurrently on {from_table} using btree(itemid,clock) where
+                  clock >= {start} and clock <{stop};"""
 
     insertline = """insert into {part_table}  select * from {from_table}
                     where clock >= {start} and clock < {stop} and
@@ -73,8 +74,7 @@ def move_data(year=2010, partition_basename="history",
                     clock >= {start} and clock < {stop} and
                     itemid >= {min_itemid} and itemid <{max_itemid};"""
 
-
-    create_index = """create index on {part_table} using brin (itemid, clock)
+    create_index = """create index concurrently on {part_table} using brin (itemid, clock)
                       with (pages_per_range=16);"""
 
     vacuum = """vauum {table};"""
@@ -99,16 +99,25 @@ def move_data(year=2010, partition_basename="history",
             yield "END TRANSACTION;"
             prev = x
         yield create_index.format(part_table=part_table)
-        yield vacuum.format(table=old_table)
+        yield vacuum.format(table=from_table)
 
 
 def rename_table(old="history", new="history_old"):
     return "ALTER TABLE {old} rename to {new};".format(old=old, new=new)
 
 
+def generate_indexes(year=2010, partition_basename="history"):
+    index = """create index concurrently on {table} using btree (itemid,clock);"""
+    series = gen_series(year=year)
+    for x, y in gen_pairs(series):
+        month = x.month
+        part_table = "{table}_y{year}m{month:02d}".format(table=partition_basename, year=year, month=month)
+        yield index.format(table=part_table)
+
+
 def main():
     print("set role postgres;")
-    itemcount = 50000
+    itemcount = 100000
     tables = ("history", "history_str", "history_text", "history_uint")
     for table in tables:
         from_table = table
@@ -119,6 +128,8 @@ def main():
             for x in move_data(year=year, partition_basename=table,
                                from_table=from_table, to_table=to_table,
                                max_itemid=itemcount):
+                print(x)
+            for x in generate_indexes(year=year, partition_basename=table):
                 print(x)
         print("BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;")
         print(rename_table(old=from_table, new=old_table))
@@ -135,6 +146,7 @@ def main():
                                from_table=old_table, to_table=to_table,
                                max_itemid=itemcount):
                 print(x)
+
 
 if __name__ == "__main__":
     main()
