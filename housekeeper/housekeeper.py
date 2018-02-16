@@ -1,59 +1,21 @@
 #!/usr/bin/env python3
 
 import psycopg2
-import sys
-import os
-
 import monthdelta
 import pytz
 
 from datetime import datetime
 
-DBCONFIG = "/etc/zabbix/zabbix.conf.d/database.conf"
-
-
-def connstring(filename=DBCONFIG):
-    if not os.path.isfile(filename):
-        print("No database config in {}".format(filename))
-        sys.exit(1)
-# File looks like
-    """
-    # DB settings\n
-    DBHost=db1.modio.dcl1.synotio.net
-    DBName=moodio.se
-    DBUser=moodio.se
-    DBPassword=sassabrassa booh
-    DBPort=5432
-    """
-
-    dbhost = "localhost"
-    dbname = "zabbix"
-    dbuser = "zabbix"
-    dbport = "5432"
-    dbpass = ""
-
-    with open(filename) as f:
-        for line in f.readlines():
-            if line.startswith("DBHost="):
-                dbhost = line.split("=", 1)[1].strip()
-            if line.startswith("DBName="):
-                dbname = line.split("=", 1)[1].strip()
-            if line.startswith("DBUser="):
-                dbuser = line.split("=", 1)[1].strip()
-            if line.startswith("DBPort="):
-                dbport = line.split("=", 1)[1].strip()
-            if line.startswith("DBPassword="):
-                dbpass = line.split("=", 1)[1].strip()
-
-    connstr = "dbname='%s' user='%s' host='%s' port='%s' password='%s'"
-    return connstr % (dbname, dbuser, dbhost, dbport, dbpass)
+from .helpers import (
+    connstring,
+    get_index_name,
+    get_table_name,
+)
 
 
 def gen_current_and_future(date=None):
     if date is None:
         date = datetime.utcnow()
-    else:
-        start = date
 
     start = datetime(
             year=date.year,
@@ -75,15 +37,6 @@ def gen_year_past():
     step = monthdelta.monthdelta(13)
     start = start - step
     yield from gen_current_and_future(date=start)
-
-
-def get_table_name(table="history", year=2011, month=12):
-    return f"{table}_y{year}m{month:02d}"
-
-
-def get_index_name(table="history", year=2011, month=12, kind="btree"):
-    tablename = get_table_name(table=table, year=year, month=month)
-    return f"{tablename}_{kind}_idx"
 
 
 def clean_old_indexes(table="history", year=2011, month=12):

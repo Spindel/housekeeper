@@ -3,88 +3,101 @@
 from __future__ import print_function
 
 import psycopg2
-import time
-import sys
 import os
 
+import pytz
+import monthdelta
 
-def main():
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
+
+from .helpers import (
+    connstring,
+    get_table_name,
+)
+
+
+def get_retention():
     """
     environment variable MODIO_RETENTION in days is used to decide on how many days
     of data retention there should be for all HISTORY data.
     """
     retention = os.environ.get("MODIO_RETENTION", "0")
     retention = int(retention)
+    return retention
 
-    DBCONFIG = "/etc/zabbix/zabbix.conf.d/database.conf"
-    if not os.path.isfile("/etc/zabbix/zabbix.conf.d/database.conf"):
-        print("No database config in {}".format(DBCONFIG))
-        sys.exit(1)
-    """
-# DB settings\n
-    DBHost=db1.modio.dcl1.synotio.net
-    DBName=moodio.se
-    DBUser=moodio.se
-    DBPassword=sassabrassa booh
-    DBPort=5432
-    """
 
-    cutoff = int(time.time()) - 2 * 86400
-    dbhost = "localhost"
-    dbname = "zabbix"
-    dbuser = "zabbix"
-    dbport = "5432"
-    dbpass = ""
+def get_month_before_retention(start=None, retention=365*32):
+    if start is None:
+        start = datetime.utcnow()
 
-    with open(DBCONFIG) as f:
-        for line in f.readlines():
-            if line.startswith("DBHost="):
-                dbhost = line.split("=", 1)[1].strip()
-            if line.startswith("DBName="):
-                dbname = line.split("=", 1)[1].strip()
-            if line.startswith("DBUser="):
-                dbuser = line.split("=", 1)[1].strip()
-            if line.startswith("DBPort="):
-                dbport = line.split("=", 1)[1].strip()
-            if line.startswith("DBPassword="):
-                dbpass = line.split("=", 1)[1].strip()
+    month = relativedelta(months=1)
+    offset = relativedelta(days=retention)
 
-    connstr = "dbname='%s' user='%s' host='%s' port='%s' password='%s'"
+    date = start - offset
+    date = datetime(
+        year=date.year,
+        month=date.month,
+        day=1,
+        hour=0,
+        minute=0,
+        second=0,
+        tzinfo=pytz.utc,
+    )
+    return date - month
 
-    with psycopg2.connect(connstr % (dbname, dbuser, dbhost, dbport, dbpass)) as c:
+
+def remove_old_table(table="history", year=2011, month=12):
+    tablename = get_table_name(table=table, year=year, month=month)
+    cleanup = f"DROP TABLE IF EXISTS {tablename};"
+    yield cleanup
+
+
+def migrate_old_data(table="history", year=2011, month=12):
+    """This function should return data to migrate the partition to an external
+    source"""
+    tablename = get_table_name(table=table, year=year, month=month)
+    del tablename
+    action = "SELECT 1;"
+    yield action
+
+
+def work_backwards(timepoint=None):
+    step = monthdelta.monthdelta(1)
+    if timepoint is None:
+        timepoint = datetime.utcnow()
+
+    date = datetime(
+            year=timepoint.year,
+            month=timepoint.month,
+            day=1,
+            hour=0,
+            minute=0,
+            second=0,
+            tzinfo=pytz.utc)
+    while date.year >= 2011:
+        yield date
+        date = date - step
+
+
+def main():
+    days = get_retention()
+    if days == 0:
+        return
+    start = get_month_before_retention(retention=days)
+    connstr = connstring()
+    tables = ("history", "history_uint", "history_text", "history_str")
+    with psycopg2.connect(connstr) as c:
         c.autocommit = True  # Don't implicitly open a transaction
-        with c.cursor() as curs:
-            curs.execute("DELETE FROM history WHERE itemid NOT IN "
-                         "(SELECT itemid from items);")
-        with c.cursor() as curs:
-            curs.execute("DELETE FROM history_uint WHERE itemid NOT IN "
-                         "(SELECT itemid from items);")
-        with c.cursor() as curs:
-            curs.execute("DELETE FROM history_str WHERE itemid NOT IN "
-                         "(SELECT itemid from items);")
-        with c.cursor() as curs:
-            curs.execute("DELETE FROM history_text WHERE itemid NOT IN "
-                         "(SELECT itemid from items);")
-        with c.cursor() as curs:
-            curs.execute("DELETE FROM history_log WHERE itemid NOT IN "
-                         "(SELECT itemid from items);")
-        with c.cursor() as curs:
-            curs.execute("DELETE FROM trends WHERE itemid NOT IN "
-                         "(SELECT itemid from items);")
-        with c.cursor() as curs:
-            curs.execute("DELETE FROM trends_uint WHERE itemid NOT IN "
-                         "(SELECT itemid from items);")
+        for date in work_backwards(timepoint=start):
+            for table in tables:
+                with c.cursor() as curs:
+                    for x in migrate_old_data(table=table, year=date.year, month=date.month):
+                        curs.execute(x)
 
-        if retention > 7:
-            now = int(time.time())
-            cutoff = now - (retention * 86400)
-            with c.cursor() as curs:
-                curs.execute("DELETE FROM history WHERE clock < %s;" % cutoff)
-            with c.cursor() as curs:
-                curs.execute("DELETE FROM history_uint WHERE clock < %s;" % cutoff)
-            with c.cursor() as curs:
-                curs.execute("DELETE FROM history_str WHERE clock < %s;" % cutoff)
-            with c.cursor() as curs:
-                curs.execute("DELETE FROM history_text WHERE clock < %s;" % cutoff)
-            with c.cursor() as curs:
-                curs.execute("DELETE FROM history_log WHERE clock < %s;" % cutoff)
+                    for x in remove_old_table(table=table, year=date.year, month=date.month):
+                        curs.execute(x)
+
+
+if __name__ == '__main__':
+    main()
