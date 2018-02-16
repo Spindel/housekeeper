@@ -49,15 +49,15 @@ def connstring(filename=DBCONFIG):
     return connstr % (dbname, dbuser, dbhost, dbport, dbpass)
 
 
-def gen_current_and_future(frm=None):
-    if frm is None:
-        frm = datetime.utcnow()
+def gen_current_and_future(date=None):
+    if date is None:
+        date = datetime.utcnow()
     else:
-        start = frm
+        start = date
 
     start = datetime(
-            year=frm.year,
-            month=frm.month,
+            year=date.year,
+            month=date.month,
             day=1,
             hour=0,
             minute=0,
@@ -74,16 +74,16 @@ def gen_year_past():
     start = datetime.utcnow()
     step = monthdelta.monthdelta(13)
     start = start - step
-    yield from gen_current_and_future(frm=start)
+    yield from gen_current_and_future(date=start)
 
 
 def get_table_name(table="history", year=2011, month=12):
     return f"{table}_y{year}m{month:02d}"
 
 
-def get_index_name(table="history", year=2011, month=12, typ="btree"):
+def get_index_name(table="history", year=2011, month=12, kind="btree"):
     tablename = get_table_name(table=table, year=year, month=month)
-    return f"{tablename}_{typ}_idx"
+    return f"{tablename}_{kind}_idx"
 
 
 def clean_old_indexes(table="history", year=2011, month=12):
@@ -97,19 +97,19 @@ def clean_old_indexes(table="history", year=2011, month=12):
 
 
 def create_btree_index(table="history", year=2011, month=12):
-    index = get_index_name(table=table, year=year, month=month, typ="btree")
+    index = get_index_name(table=table, year=year, month=month, kind="btree")
     table = get_table_name(table=table, year=year, month=month)
     yield f"CREATE INDEX IF NOT EXISTS {index} on {table} using btree (itemid, clock);"
 
 
 def create_brin_index(table="history", year=2011, month=12):
-    index = get_index_name(table=table, year=year, month=month, typ="brin")
+    index = get_index_name(table=table, year=year, month=month, kind="brin")
     table = get_table_name(table=table, year=year, month=month)
     yield f"CREATE INDEX IF NOT EXISTS {index} on {table} using brin (itemid, clock) WITH (pages_per_range='16');"
 
 
 def clean_btree_index(table="history", year=2011, month=12):
-    index = get_index_name(table=table, year=year, month=month, typ="btree")
+    index = get_index_name(table=table, year=year, month=month, kind="btree")
     yield f"DROP INDEX IF EXISTS {index};"
 
 
@@ -132,7 +132,7 @@ def create_fit_tables(table="history", year=2011, month=12):
 
 def cluster_table(table="history", year=2011, month=12):
     tablename = get_table_name(table=table, year=year, month=month)
-    indexname = get_index_name(table=table, year=year, month=month, typ="btree")
+    indexname = get_index_name(table=table, year=year, month=month, kind="btree")
     yield from create_btree_index(table=table, year=year, month=month)
     yield f"CLUSTER TABLE {tablename} on {indexname};"
     yield from clean_btree_index(table=table, year=year, month=month)
