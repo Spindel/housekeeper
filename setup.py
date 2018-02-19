@@ -4,6 +4,7 @@ requires = [
     'pytz',
     'monthdelta',
     'psycopg2-binary',
+    'dateutils',
 ]
 
 setup_requires = [
