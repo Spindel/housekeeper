@@ -32,11 +32,40 @@ def gen_current_and_future(date=None):
         yield start
 
 
+def get_constraint_name(table="history", year=2011, month=12):
+    return f"{table}_y{year}m{month:02d}_check"
+
+
 def gen_year_past():
     start = datetime.utcnow()
     step = monthdelta.monthdelta(13)
     start = start - step
     yield from gen_current_and_future(date=start)
+
+
+def gen_2014_to_2018():
+    date = datetime(
+            year=2014,
+            month=1,
+            day=1,
+            hour=0,
+            minute=0,
+            second=0,
+            tzinfo=pytz.utc)
+    step = monthdelta.monthdelta(1)
+
+    while date.year < 2019:
+        yield date
+        date = date + step
+
+
+def gen_last_month():
+    step = monthdelta.monthdelta(1)
+    start_date = datetime.utcnow() - step
+
+    date = datetime(year=start_date.year, month=start_date.month,
+                    day=1, hour=0, minute=0, second=0, tzinfo=pytz.utc)
+    yield date
 
 
 def clean_old_indexes(table="history", year=2011, month=12):
@@ -49,16 +78,17 @@ def clean_old_indexes(table="history", year=2011, month=12):
         yield cleanup.format(oldindex)
 
 
-def create_btree_index(table="history", year=2011, month=12):
+def ensure_btree_index(table="history", year=2011, month=12):
     index = get_index_name(table=table, year=year, month=month, kind="btree")
     table = get_table_name(table=table, year=year, month=month)
-    yield f"CREATE INDEX IF NOT EXISTS {index} on {table} using btree (itemid, clock);"
+    yield f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {index} on {table} using btree (itemid, clock);"
 
 
-def create_brin_index(table="history", year=2011, month=12):
+def ensure_brin_index(table="history", year=2011, month=12):
     index = get_index_name(table=table, year=year, month=month, kind="brin")
     table = get_table_name(table=table, year=year, month=month)
-    yield f"CREATE INDEX IF NOT EXISTS {index} on {table} using brin (itemid, clock) WITH (pages_per_range='16');"
+    yield (f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {index} on {table} "
+           f"USING brin (itemid, clock) WITH (pages_per_range='16');")
 
 
 def clean_btree_index(table="history", year=2011, month=12):
@@ -71,27 +101,104 @@ def clean_old_items(table="history", year=2011, month=12):
     yield f"DELETE FROM {table} WHERE itemid NOT IN (select itemid from items);"
 
 
-def create_fit_tables(table="history", year=2011, month=12):
+def get_start_and_stop(year=2011, month=11):
     step = monthdelta.monthdelta(1)
     start_date = datetime(year=year, month=month, day=1,
                           hour=0, minute=0, second=0,
                           tzinfo=pytz.utc)
     stop_date = start_date + step
-    month = start_date.month
     start, stop = int(start_date.timestamp()), int(stop_date.timestamp())
+    return start, stop
+
+
+def create_table_partition(table="history", year=2011, month=12):
+    start, stop = get_start_and_stop(year=year, month=month)
     tablename = get_table_name(table=table, year=year, month=month)
     yield f"CREATE TABLE IF NOT EXISTS {tablename} PARTITION OF {table} for values from ({start}) to ({stop});"
+
+
+def detach_partition(table="history", year=2011, month=12):
+    tablename = get_table_name(table=table, year=year, month=month)
+    detach = f"ALTER TABLE {table} DETACH PARTITION {tablename};"
+    yield detach
+
+
+def drop_check_constraint(table="history", year=2011, month=12):
+    tablename = get_table_name(table=table, year=year, month=month)
+    constraint_name = get_constraint_name(table=table, year=year, month=month)
+    constraint = f"ALTER TABLE {tablename} DROP CONSTRAINT IF EXISTS {constraint_name};"
+    yield constraint
+
+
+def add_check_constraint(table="history", year=2011, month=12):
+    tablename = get_table_name(table=table, year=year, month=month)
+    constraint_name = get_constraint_name(table=table, year=year, month=month)
+    start, stop = get_start_and_stop(year=year, month=month)
+    constraint = (f"ALTER TABLE {tablename} ADD CONSTRAINT {constraint_name} "
+                  f"CHECK (clock >= {start} AND clock < {stop});")
+    yield from drop_check_constraint(table=table, year=year, month=month)
+    yield constraint
+
+
+def attach_partition(table="history", year=2011, month=12):
+    start, stop = get_start_and_stop(year=year, month=month)
+    partition_name = get_table_name(table=table, year=year, month=month)
+    attach = f"ALTER TABLE {table} ATTACH PARTITION {partition_name} FOR VALUES FROM ({start}) TO ({stop});"
+    yield attach
 
 
 def cluster_table(table="history", year=2011, month=12):
     tablename = get_table_name(table=table, year=year, month=month)
     indexname = get_index_name(table=table, year=year, month=month, kind="btree")
-    yield from create_btree_index(table=table, year=year, month=month)
-    yield f"CLUSTER TABLE {tablename} on {indexname};"
+    start, stop = get_start_and_stop(year=year, month=month)
+    temp_table = f"{tablename}_temp"
+
+    yield "BEGIN TRANSACTION;"
+    yield from detach_partition(table=table, year=year, month=month)
+    yield f"CREATE TABLE IF NOT EXISTS {temp_table} PARTITION OF {table} for values from ({start}) to ({stop});"
+    yield "COMMIT;"
+
+    yield "-- Create an b-tree index so we can cluster"
+    yield from ensure_btree_index(table=table, year=year, month=month)
+    yield f"CLUSTER {tablename} USING {indexname};"
+    yield from add_check_constraint(table=table, year=year, month=month)
     yield from clean_btree_index(table=table, year=year, month=month)
 
+    yield "-- Swap tables"
+    yield "BEGIN TRANSACTION;"
+    yield f"ALTER TABLE {table} DETACH PARTITION {temp_table};"
+    yield from attach_partition(table=table, year=year, month=month)
+    yield "COMMIT;"
 
-def do_maintenance(connstr):
+    yield "-- Move any data that arrived while we were detached"
+    yield "BEGIN TRANSACTION;"
+    yield f"INSERT INTO {tablename} SELECT * from {temp_table} order by itemid,clock;"
+    yield f"DROP TABLE {temp_table};"
+    yield "COMMIT;"
+
+    yield from drop_check_constraint(table=table, year=year, month=month)
+
+
+def migrate_table(server, table="history", year=2011, month=12):
+    """Code to migrate a table to a remote server."""
+    raise NotImplemented("Not implemented yet")
+    tablename = get_table_name(table=table, year=year, month=month)
+    temp_table = f"{tablename}_temp"
+    start, stop = get_start_and_stop(year=year, month=month)
+    yield "BEGIN TRANSACTION;"
+    yield from detach_partition(table=table, year=year, month=month)
+    yield f"ALTER TABLE {tablename} RENAME TO {temp_table};"
+    yield f"create foreign table if not exists {tablename} like {table} server {server};"
+    yield from attach_partition(table=table, year=year, month=month)
+    yield "COMMIT;"
+    yield "BEGIN TRANSACTION;"
+    yield f"INSERT INTO {tablename} SELECT * from {temp_table} order by itemid,clock;"
+    yield f"DROP TABLE {temp_table};"
+    yield f"ALTER TABLE {tablename} RENAME TO {tablename}_foreign;"
+    yield "COMMIT;"
+
+
+def do_maintenance(connstr, cluster=False):
     tables = ("history", "history_uint", "history_text", "history_str")
 
     with psycopg2.connect(connstr) as c:
@@ -99,11 +206,11 @@ def do_maintenance(connstr):
         for date in gen_current_and_future():
             for table in tables:
                 with c.cursor() as curs:
-                    for x in create_fit_tables(table=table, year=date.year, month=date.month):
+                    for x in create_table_partition(table=table, year=date.year, month=date.month):
                         curs.execute(x)
 
                 with c.cursor() as curs:
-                    for x in create_btree_index(table=table, year=date.year, month=date.month):
+                    for x in ensure_btree_index(table=table, year=date.year, month=date.month):
                         curs.execute(x)
 
                 with c.cursor() as curs:
@@ -113,7 +220,7 @@ def do_maintenance(connstr):
         for date in gen_year_past():
             for table in tables:
                 with c.cursor() as curs:
-                    for x in create_brin_index(table=table, year=date.year, month=date.month):
+                    for x in ensure_brin_index(table=table, year=date.year, month=date.month):
                         curs.execute(x)
 
                 with c.cursor() as curs:
@@ -127,17 +234,28 @@ def do_maintenance(connstr):
                 with c.cursor() as curs:
                     for x in clean_old_items(table=table, year=date.year, month=date.month):
                         curs.execute(x)
-
-                # TODO: Figure out how/when to run the clustering operation
-                if False:
+        if cluster:
+            for date in gen_last_month():
+                for table in tables:
                     with c.cursor() as curs:
                         for x in cluster_table(table=table, year=date.year, month=date.month):
                             curs.execute(x)
 
 
+def oneshot_maintenance():
+    tables = ("history", "history_uint", "history_text", "history_str")
+    for date in gen_2014_to_2018():
+        for table in tables:
+            yield from ensure_brin_index(table=table, year=date.year, month=date.month)
+            yield from clean_old_indexes(table=table, year=date.year, month=date.month)
+            yield from clean_old_items(table=table, year=date.year, month=date.month)
+            yield from cluster_table(table=table, year=date.year, month=date.month)
+
+
 def main():
     connstr = connstring()
-    do_maintenance(connstr=connstr)
+    should_cluster = datetime.utcnow().day == 14
+    do_maintenance(connstr=connstr, cluster=should_cluster)
 
 
 if __name__ == '__main__':
