@@ -57,25 +57,19 @@ def gen_base_partition(from_table="history", to_table="history_part"):
 
 
 def move_data(year=2010, partition_basename="history",
-              to_table="history_part", from_table="history", max_itemid=100000):
+              to_table="history_part", from_table="history"):
 
     createline = """create table {part_table} PARTITION OF {to_table}
                      for values from ({start}) to ({stop});"""
 
-
     insertline = """insert into {part_table}  select * from {from_table}
-                    where clock >= {start} and clock < {stop} and
-                    itemid >= {min_itemid} and itemid <{max_itemid}
-                    order by itemid;"""
+                    where clock >= {start} and clock < {stop};"""
 
     deleteline = """delete from {from_table} where
-                    clock >= {start} and clock < {stop} and
-                    itemid >= {min_itemid} and itemid <{max_itemid};"""
+                    clock >= {start} and clock < {stop}"""
 
     create_index = """create index concurrently on {part_table} using brin (itemid, clock)
                       with (pages_per_range=16);"""
-
-    vacuum = """vacuum {table};"""
 
     series = gen_series(year=year)
     for x, y in gen_pairs(series):
@@ -83,20 +77,12 @@ def move_data(year=2010, partition_basename="history",
         start, stop = int(x.timestamp()), int(y.timestamp())
         part_table = "{table}_y{year}m{month:02d}".format(table=partition_basename, year=year, month=month)
         yield createline.format(to_table=to_table, part_table=part_table, start=start, stop=stop)
-        prev = 0
-        # 1000 is a magical constant that makes postgres prefer an index scan
-        # over sequential scan.
-        for x in range(0, max_itemid, 1000):
-            yield "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;"
-            yield insertline.format(part_table=part_table, from_table=from_table,
-                                    start=start, stop=stop,
-                                    min_itemid=prev, max_itemid=x)
-            yield deleteline.format(from_table=from_table, start=start, stop=stop,
-                                    min_itemid=prev, max_itemid=x)
-            yield "END TRANSACTION;"
-            prev = x
+        yield "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;"
+        yield insertline.format(part_table=part_table, from_table=from_table,
+                                start=start, stop=stop)
+        yield deleteline.format(from_table=from_table, start=start, stop=stop)
+        yield "END TRANSACTION;"
         yield create_index.format(part_table=part_table)
-        yield vacuum.format(table=from_table)
 
 
 def rename_table(old="history", new="history_old"):
@@ -114,7 +100,6 @@ def generate_indexes(year=2010, partition_basename="history"):
 
 def main():
     print("set role postgres;")
-    itemcount = 100000
     tables = ("history", "history_str", "history_text", "history_uint")
     for table in tables:
         from_table = table
@@ -123,8 +108,7 @@ def main():
         print(gen_base_partition(from_table=from_table, to_table=to_table))
         for year in (2018, ):
             for x in move_data(year=year, partition_basename=table,
-                               from_table=from_table, to_table=to_table,
-                               max_itemid=itemcount):
+                               from_table=from_table, to_table=to_table):
                 print(x)
             for x in generate_indexes(year=year, partition_basename=table):
                 print(x)
@@ -140,8 +124,7 @@ def main():
         to_table = table
         for year in (2014, 2015, 2016, 2017):
             for x in move_data(year=year, partition_basename=table,
-                               from_table=old_table, to_table=to_table,
-                               max_itemid=itemcount):
+                               from_table=old_table, to_table=to_table):
                 print(x)
 
 
