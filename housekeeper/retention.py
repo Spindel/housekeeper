@@ -22,14 +22,16 @@ def get_retention():
     environment variable MODIO_RETENTION in days is used to decide on how many days
     of data retention there should be for all HISTORY data.
     """
-    retention = os.environ.get("MODIO_RETENTION", "0")
+    retention = os.environ.get("MODIO_RETENTION")
     retention = int(retention)
     return retention
 
 
-def get_month_before_retention(start=None, retention=365*32):
+def get_month_before_retention(start=None, retention=None):
     if start is None:
         start = datetime.utcnow()
+    if retention is None:
+        raise ValueError
 
     month = relativedelta(months=1)
     offset = relativedelta(days=retention)
@@ -82,8 +84,7 @@ def work_backwards(timepoint=None):
 
 def main():
     days = get_retention()
-    if days == 0:
-        return
+
     start = get_month_before_retention(retention=days)
     connstr = connstring()
     tables = ("history", "history_uint", "history_text", "history_str")
