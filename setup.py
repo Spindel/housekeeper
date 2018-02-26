@@ -3,7 +3,8 @@ from setuptools import setup, find_packages
 requires = [
     'pytz',
     'monthdelta',
-    'psycopg2',
+    'psycopg2-binary',
+    'dateutils',
 ]
 
 setup_requires = [
