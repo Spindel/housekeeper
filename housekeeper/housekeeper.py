@@ -15,6 +15,7 @@ from .helpers import (
     gen_current_and_future,
     gen_year_past,
     gen_last_month,
+    gen_last_months_maintenance_range,
 )
 
 
@@ -169,11 +170,17 @@ def do_maintenance(connstr, cluster=False):
                     for x in ensure_btree_index(table=table, year=date.year, month=date.month):
                         curs.execute(x)
 
+        for date in gen_year_past():
+            for table in tables:
                 with c.cursor() as curs:
-                    for x in clean_old_indexes(table=table, year=date.year, month=date.month):
+                    for x in clean_old_items(table=table, year=date.year, month=date.month):
                         curs.execute(x)
 
-        for date in gen_year_past():
+                with c.cursor() as curs:
+                    for x in ensure_brin_index(table=table, year=date.year, month=date.month):
+                        curs.execute(x)
+
+        for date in gen_last_months_maintenance_range():
             for table in tables:
                 with c.cursor() as curs:
                     for x in ensure_brin_index(table=table, year=date.year, month=date.month):
@@ -183,13 +190,6 @@ def do_maintenance(connstr, cluster=False):
                     for x in clean_btree_index(table=table, year=date.year, month=date.month):
                         curs.execute(x)
 
-                with c.cursor() as curs:
-                    for x in clean_old_indexes(table=table, year=date.year, month=date.month):
-                        curs.execute(x)
-
-                with c.cursor() as curs:
-                    for x in clean_old_items(table=table, year=date.year, month=date.month):
-                        curs.execute(x)
         if cluster:
             for date in gen_last_month():
                 for table in tables:

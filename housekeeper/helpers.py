@@ -98,6 +98,15 @@ def gen_current_and_future(date=None):
         yield start
 
 
+def gen_last_months_maintenance_range():
+    """ Generates a month/time sequence starting 14 months into the past, and
+    working 12 months into the future from that date."""
+    start = datetime.utcnow()
+    step = monthdelta.monthdelta(14)
+    start = start - step
+    yield from gen_current_and_future(date=start)
+
+
 def gen_year_past():
     start = datetime.utcnow()
     step = monthdelta.monthdelta(13)
