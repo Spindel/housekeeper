@@ -1,4 +1,7 @@
+import sys
+
 from setuptools import setup, find_packages
+from setuptools.command.test import test as TestCommand
 
 requires = [
     'pytz',
@@ -10,6 +13,30 @@ requires = [
 setup_requires = [
     'flake8',
 ]
+
+tests_require = [
+    'pytest',
+]
+
+
+class PyTest(TestCommand):
+    user_options = [('pytest-args=', 'a', "Arguments to pass to py.test")]
+
+    def initialize_options(self):
+        super().initialize_options()
+        self.pytest_args = []
+
+    def finalize_options(self):
+        super().finalize_options()
+        self.test_args = []
+        self.test_suite = True
+
+    def run_tests(self):
+        # import here, so the egg files have been loaded
+        import pytest
+        errno = pytest.main(self.pytest_args)
+        sys.exit(errno)
+
 
 setup(
     name='housekeeper',
@@ -24,6 +51,10 @@ setup(
     include_package_data=True,
     install_requires=requires,
     setup_requires=setup_requires,
+    extras_require={
+        'testing': tests_require,
+    },
+    cmdclass={'test': PyTest},
     entry_points={
         'console_scripts': [
             'housekeeper = housekeeper.housekeeper:main',

@@ -98,8 +98,9 @@ def gen_current_and_future(date=None):
         yield start
 
 
-def gen_year_past():
-    start = datetime.utcnow()
+def gen_year_past(start=None):
+    if start is None:
+        start = datetime.utcnow()
     step = monthdelta.monthdelta(13)
     start = start - step
     yield from gen_current_and_future(date=start)
