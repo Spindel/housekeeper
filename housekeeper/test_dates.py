@@ -52,37 +52,37 @@ class TestDateGeneration(unittest.TestCase):
     def test_past_months_at_start_of_month_should_be_correct(self):
         start = date(2018, 3, 1)
         months = [
-            date(2017, 2, 1),
-            date(2017, 3, 1),
-            date(2017, 4, 1),
-            date(2017, 5, 1),
-            date(2017, 6, 1),
-            date(2017, 7, 1),
-            date(2017, 8, 1),
-            date(2017, 9, 1),
-            date(2017, 10, 1),
-            date(2017, 11, 1),
-            date(2017, 12, 1),
-            date(2018, 1, 1),
             date(2018, 2, 1),
+            date(2018, 1, 1),
+            date(2017, 12, 1),
+            date(2017, 11, 1),
+            date(2017, 10, 1),
+            date(2017, 9, 1),
+            date(2017, 8, 1),
+            date(2017, 7, 1),
+            date(2017, 6, 1),
+            date(2017, 5, 1),
+            date(2017, 4, 1),
+            date(2017, 3, 1),
+            date(2017, 2, 1),
         ]
         assert list(helpers.gen_year_past(start)) == months
 
     def test_past_months_at_end_of_month_should_be_correct(self):
         start = date(2018, 3, 31)
         months = [
-            date(2017, 2, 1),
-            date(2017, 3, 1),
-            date(2017, 4, 1),
-            date(2017, 5, 1),
-            date(2017, 6, 1),
-            date(2017, 7, 1),
-            date(2017, 8, 1),
-            date(2017, 9, 1),
-            date(2017, 10, 1),
-            date(2017, 11, 1),
-            date(2017, 12, 1),
-            date(2018, 1, 1),
             date(2018, 2, 1),
+            date(2018, 1, 1),
+            date(2017, 12, 1),
+            date(2017, 11, 1),
+            date(2017, 10, 1),
+            date(2017, 9, 1),
+            date(2017, 8, 1),
+            date(2017, 7, 1),
+            date(2017, 6, 1),
+            date(2017, 5, 1),
+            date(2017, 4, 1),
+            date(2017, 3, 1),
+            date(2017, 2, 1),
         ]
         assert list(helpers.gen_year_past(start)) == months

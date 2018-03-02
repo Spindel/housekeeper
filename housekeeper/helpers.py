@@ -79,28 +79,34 @@ def gen_last_month():
     yield date
 
 
-def gen_current_and_future(date=None):
-    if date is None:
-        date = datetime.utcnow()
+def gen_monthdeltas(*, from_date=None, month_delta=1):
+    if from_date is None:
+        from_date = datetime.utcnow()
 
     start = datetime(
-            year=date.year,
-            month=date.month,
+            year=from_date.year,
+            month=from_date.month,
             day=1,
             hour=0,
             minute=0,
             second=0,
             tzinfo=pytz.utc)
-    step = monthdelta.monthdelta(1)
+    step = monthdelta.monthdelta(month_delta)
+
     yield start
-    for x in range(12):
+    while True:
         start = start + step
         yield start
 
 
+def gen_current_and_future(date=None):
+    months = gen_monthdeltas(from_date=date, month_delta=1)
+    for n in range(13):
+        yield next(months)
+
+
 def gen_year_past(start=None):
-    if start is None:
-        start = datetime.utcnow()
-    step = monthdelta.monthdelta(13)
-    start = start - step
-    yield from gen_current_and_future(date=start)
+    months = gen_monthdeltas(from_date=start, month_delta=-1)
+    next(months)
+    for n in range(13):
+        yield next(months)
