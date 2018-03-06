@@ -173,16 +173,9 @@ def do_maintenance(connstr, cluster=False):
                     for x in clean_old_indexes(table=table, year=date.year, month=date.month):
                         curs.execute(x)
 
-        for date in gen_year_past():
+        for n, date in enumerate(gen_year_past()):
+            previous_month = (n == 0)
             for table in tables:
-                with c.cursor() as curs:
-                    for x in ensure_brin_index(table=table, year=date.year, month=date.month):
-                        curs.execute(x)
-
-                with c.cursor() as curs:
-                    for x in clean_btree_index(table=table, year=date.year, month=date.month):
-                        curs.execute(x)
-
                 with c.cursor() as curs:
                     for x in clean_old_indexes(table=table, year=date.year, month=date.month):
                         curs.execute(x)
@@ -190,6 +183,16 @@ def do_maintenance(connstr, cluster=False):
                 with c.cursor() as curs:
                     for x in clean_old_items(table=table, year=date.year, month=date.month):
                         curs.execute(x)
+
+                if not previous_month:
+                    with c.cursor() as curs:
+                        for x in ensure_brin_index(table=table, year=date.year, month=date.month):
+                            curs.execute(x)
+
+                    with c.cursor() as curs:
+                        for x in clean_btree_index(table=table, year=date.year, month=date.month):
+                            curs.execute(x)
+
         if cluster:
             for date in gen_last_month():
                 for table in tables:
