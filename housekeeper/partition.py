@@ -1,30 +1,18 @@
+import helpers
 
-import monthdelta
-import pytz
-
-from datetime import datetime
+from datetime import (
+    date,
+)
 
 
 def gen_series(year=2015):
-    start = datetime(year=year, month=1, day=1,
-                     hour=0, minute=0, second=0,
-                     tzinfo=pytz.utc)
-    step = monthdelta.monthdelta(1)
-    yield start
-    for x in range(12):
-        start = start + step
-        yield start
+    start = date(year=year, month=1, day=1)
+    yield from helpers.gen_current_and_future(date=start)
 
 
 def gen_quarters(year=2015):
-    start = datetime(year=year, month=1, day=1,
-                     hour=0, minute=0, second=0,
-                     tzinfo=pytz.utc)
-    step = monthdelta.monthdelta(3)
-    yield start
-    for x in range(4):
-        start = start + step
-        yield start
+    start = date(year=year, month=1, day=1)
+    yield from helpers.gen_quarters(start)
 
 
 def gen_quarterly_partitions(year=2010, from_table="history",
@@ -44,7 +32,7 @@ def gen_partitions(year=2010, table="history_part"):
     series = gen_series(year=year)
     for x, y in gen_pairs(series):
         month = x.month
-        start, stop = int(x.timestamp()), int(y.timestamp())
+        start, stop = helpers.timestamp(x), helpers.timestamp(y)
         line = """create table {table}_y{year}m{month:02d} PARTITION OF {table}
                for values from ({start}) to ({stop});"""
         yield line.format(table=table, year=year, month=month,
@@ -74,7 +62,7 @@ def move_data(year=2010, partition_basename="history",
     series = gen_series(year=year)
     for x, y in gen_pairs(series):
         month = x.month
-        start, stop = int(x.timestamp()), int(y.timestamp())
+        start, stop = helpers.timestamp(x), helpers.timestamp(y)
         part_table = "{table}_y{year}m{month:02d}".format(table=partition_basename, year=year, month=month)
         yield createline.format(to_table=to_table, part_table=part_table, start=start, stop=stop)
         yield "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;"

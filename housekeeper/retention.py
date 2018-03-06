@@ -5,15 +5,16 @@ from __future__ import print_function
 import psycopg2
 import os
 
-import pytz
-import monthdelta
 
-from datetime import datetime
-from dateutil.relativedelta import relativedelta
+from datetime import (
+    datetime,
+)
 
 from .helpers import (
     connstring,
     get_table_name,
+    prev_month,
+    get_month_before_retention,
 )
 
 
@@ -25,28 +26,6 @@ def get_retention():
     retention = os.environ.get("MODIO_RETENTION")
     retention = int(retention)
     return retention
-
-
-def get_month_before_retention(start=None, retention=None):
-    if start is None:
-        start = datetime.utcnow()
-    if retention is None:
-        raise ValueError
-
-    month = relativedelta(months=1)
-    offset = relativedelta(days=retention)
-
-    date = start - offset
-    date = datetime(
-        year=date.year,
-        month=date.month,
-        day=1,
-        hour=0,
-        minute=0,
-        second=0,
-        tzinfo=pytz.utc,
-    )
-    return date - month
 
 
 def remove_old_table(table="history", year=2011, month=12):
@@ -65,21 +44,14 @@ def migrate_old_data(table="history", year=2011, month=12):
 
 
 def work_backwards(timepoint=None):
-    step = monthdelta.monthdelta(1)
     if timepoint is None:
-        timepoint = datetime.utcnow()
+        day = datetime.utcnow().date()
+    else:
+        day = timepoint.date()
 
-    date = datetime(
-            year=timepoint.year,
-            month=timepoint.month,
-            day=1,
-            hour=0,
-            minute=0,
-            second=0,
-            tzinfo=pytz.utc)
-    while date.year >= 2011:
-        yield date
-        date = date - step
+    while day.year >= 2011:
+        yield day
+        day = prev_month(day)
 
 
 def main():
