@@ -8,6 +8,7 @@ import os
 
 from datetime import (
     datetime,
+    date,
 )
 
 from .helpers import (
@@ -61,13 +62,13 @@ def main():
     tables = ("history", "history_uint", "history_text", "history_str")
     with psycopg2.connect(connstr) as c:
         c.autocommit = True  # Don't implicitly open a transaction
-        for date in work_backwards(day=start):
+        for day in work_backwards(day=start):
             for table in tables:
                 with c.cursor() as curs:
-                    for x in migrate_old_data(table=table, year=date.year, month=date.month):
+                    for x in migrate_old_data(table=table, year=day.year, month=day.month):
                         curs.execute(x)
 
-                    for x in remove_old_table(table=table, year=date.year, month=date.month):
+                    for x in remove_old_table(table=table, year=day.year, month=day.month):
                         curs.execute(x)
 
 
