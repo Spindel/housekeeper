@@ -203,7 +203,7 @@ def oneshot_maintenance():
 
 def main():
     connstr = connstring()
-    should_cluster = datetime.datetime.now(datetime.timezone.utc).day == 14
+    should_cluster = datetime.datetime.utcnow().day == 14
     do_maintenance(connstr=connstr, cluster=should_cluster)
 
 

@@ -43,11 +43,10 @@ def migrate_old_data(table="history", year=2011, month=12):
     yield action
 
 
-def work_backwards(timepoint=None):
-    if timepoint is None:
+def work_backwards(day=None):
+    if day is None:
         day = datetime.utcnow().date()
-    else:
-        day = timepoint.date()
+    assert isinstance(day, date)
 
     while day.year >= 2011:
         yield day
@@ -62,7 +61,7 @@ def main():
     tables = ("history", "history_uint", "history_text", "history_str")
     with psycopg2.connect(connstr) as c:
         c.autocommit = True  # Don't implicitly open a transaction
-        for date in work_backwards(timepoint=start):
+        for date in work_backwards(day=start):
             for table in tables:
                 with c.cursor() as curs:
                     for x in migrate_old_data(table=table, year=date.year, month=date.month):

@@ -91,12 +91,12 @@ class TestDateGeneration(unittest.TestCase):
         assert stop == 1519862400
 
     def test_get_month_before_retention_gets_prev_month(self):
-        start = datetime.datetime(2018, 3, 8)
+        start = date(2018, 3, 8)
         day = helpers.get_month_before_retention(start=start, retention=7)
         assert day == date(2018, 2, 1)
 
     def test_get_month_before_retention_handles_decrement(self):
-        start = datetime.datetime(2018, 3, 6)
+        start = date(2018, 3, 6)
         day = helpers.get_month_before_retention(start=start, retention=7)
         assert day == date(2018, 1, 1)
 

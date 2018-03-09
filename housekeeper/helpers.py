@@ -137,9 +137,8 @@ def deduct_retention(start, retention):
 def get_month_before_retention(start=None, retention=None):
     assert retention > 0
     if start is None:
-        start = datetime.utcnow()
-    assert isinstance(start, datetime)
-    start = start.date()
+        start = datetime.utcnow().date()
+    assert isinstance(start, date)
 
     beginning = deduct_retention(start, retention)
     return prev_month(beginning)
