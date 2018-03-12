@@ -4,10 +4,7 @@ from setuptools import setup, find_packages
 from setuptools.command.test import test as TestCommand
 
 requires = [
-    'pytz',
-    'monthdelta',
     'psycopg2-binary',
-    'dateutils',
 ]
 
 setup_requires = [

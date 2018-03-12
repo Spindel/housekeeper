@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 
 import psycopg2
-import monthdelta
-import pytz
 
-from datetime import datetime
+import datetime
 
 from .helpers import (
     connstring,
@@ -15,23 +13,15 @@ from .helpers import (
     gen_current_and_future,
     gen_year_past,
     gen_last_month,
+    gen_next_month,
 )
 
 
 def gen_2014_to_2018():
-    date = datetime(
-            year=2014,
-            month=1,
-            day=1,
-            hour=0,
-            minute=0,
-            second=0,
-            tzinfo=pytz.utc)
-    step = monthdelta.monthdelta(1)
-
-    while date.year < 2019:
-        yield date
-        date = date + step
+    day = datetime.date(year=2014, month=1, day=1)
+    while day.year < 2019:
+        yield day
+        day = gen_next_month(day)
 
 
 def clean_old_indexes(table="history", year=2011, month=12):
@@ -213,7 +203,7 @@ def oneshot_maintenance():
 
 def main():
     connstr = connstring()
-    should_cluster = datetime.utcnow().day == 14
+    should_cluster = datetime.datetime.utcnow().day == 14
     do_maintenance(connstr=connstr, cluster=should_cluster)
 
 

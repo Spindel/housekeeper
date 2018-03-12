@@ -1,13 +1,31 @@
 import sys
 import os
 
-import monthdelta
-import pytz
-
-from datetime import datetime
+from datetime import (
+    datetime,
+    timedelta,
+    date,
+)
 
 
 DBCONFIG = "/etc/zabbix/zabbix.conf.d/database.conf"
+EPOCH = date(1970, 1, 1)
+MONTHISH = timedelta(days=31)
+
+
+def timestamp(day):
+    assert isinstance(day, date)
+    return int((day - EPOCH).total_seconds())
+
+
+def prev_month(day):
+    assert isinstance(day, date)
+    return (day.replace(day=15) - MONTHISH).replace(day=1)
+
+
+def next_month(day):
+    assert isinstance(day, date)
+    return (day.replace(day=15) + MONTHISH).replace(day=1)
 
 
 def connstring(filename=DBCONFIG):
@@ -61,52 +79,66 @@ def get_constraint_name(table="history", year=2011, month=12):
 
 
 def get_start_and_stop(year=2011, month=11):
-    step = monthdelta.monthdelta(1)
-    start_date = datetime(year=year, month=month, day=1,
-                          hour=0, minute=0, second=0,
-                          tzinfo=pytz.utc)
-    stop_date = start_date + step
-    start, stop = int(start_date.timestamp()), int(stop_date.timestamp())
-    return start, stop
+    start = date(year=year, month=month, day=1)
+    stop = next_month(start)
+    return timestamp(start), timestamp(stop)
 
 
 def gen_last_month():
-    step = monthdelta.monthdelta(1)
-    start_date = datetime.utcnow() - step
-
-    date = datetime(year=start_date.year, month=start_date.month,
-                    day=1, hour=0, minute=0, second=0, tzinfo=pytz.utc)
-    yield date
+    start_date = datetime.utcnow().date()
+    yield prev_month(start_date)
 
 
-def gen_monthdeltas(*, from_date=None, month_delta=1):
+def gen_monthdeltas(*, from_date=None, step=next_month):
     if from_date is None:
-        from_date = datetime.utcnow()
+        from_date = datetime.utcnow().date()
 
-    start = datetime(
-            year=from_date.year,
-            month=from_date.month,
-            day=1,
-            hour=0,
-            minute=0,
-            second=0,
-            tzinfo=pytz.utc)
-    step = monthdelta.monthdelta(month_delta)
+    day = from_date.replace(day=1)
 
-    yield start
+    yield day
     while True:
-        start = start + step
-        yield start
+        day = step(day)
+        yield day
 
 
 def gen_current_and_future(date=None):
-    months = gen_monthdeltas(from_date=date, month_delta=1)
+    months = gen_monthdeltas(from_date=date, step=next_month)
     for n in range(13):
         yield next(months)
+
+
+def gen_quarters(start):
+    assert isinstance(start, date)
+    start = start.replace(month=1, day=1)
+    yield start
+    for x in range(4):
+        start = next_month(start)
+        start = next_month(start)
+        start = next_month(start)
+        yield start
 
 
 def gen_year_past(start=None):
-    months = gen_monthdeltas(from_date=start, month_delta=-1)
+    months = gen_monthdeltas(from_date=start, step=prev_month)
     next(months)
     for n in range(13):
         yield next(months)
+
+
+def deduct_retention(start, retention):
+    assert retention > 0
+    assert isinstance(start, date)
+
+    offset = retention * 86400
+    start_ts = timestamp(start) - offset
+    return datetime.utcfromtimestamp(start_ts).date()
+
+
+def get_month_before_retention(start=None, retention=None):
+    assert retention > 0
+    if start is None:
+        start = datetime.utcnow().date()
+    assert isinstance(start, date)
+
+    beginning = deduct_retention(start, retention)
+    return prev_month(beginning)

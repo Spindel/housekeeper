@@ -5,15 +5,17 @@ from __future__ import print_function
 import psycopg2
 import os
 
-import pytz
-import monthdelta
 
-from datetime import datetime
-from dateutil.relativedelta import relativedelta
+from datetime import (
+    datetime,
+    date,
+)
 
 from .helpers import (
     connstring,
     get_table_name,
+    prev_month,
+    get_month_before_retention,
 )
 
 
@@ -25,28 +27,6 @@ def get_retention():
     retention = os.environ.get("MODIO_RETENTION")
     retention = int(retention)
     return retention
-
-
-def get_month_before_retention(start=None, retention=None):
-    if start is None:
-        start = datetime.utcnow()
-    if retention is None:
-        raise ValueError
-
-    month = relativedelta(months=1)
-    offset = relativedelta(days=retention)
-
-    date = start - offset
-    date = datetime(
-        year=date.year,
-        month=date.month,
-        day=1,
-        hour=0,
-        minute=0,
-        second=0,
-        tzinfo=pytz.utc,
-    )
-    return date - month
 
 
 def remove_old_table(table="history", year=2011, month=12):
@@ -64,22 +44,14 @@ def migrate_old_data(table="history", year=2011, month=12):
     yield action
 
 
-def work_backwards(timepoint=None):
-    step = monthdelta.monthdelta(1)
-    if timepoint is None:
-        timepoint = datetime.utcnow()
+def work_backwards(day=None):
+    if day is None:
+        day = datetime.utcnow().date()
+    assert isinstance(day, date)
 
-    date = datetime(
-            year=timepoint.year,
-            month=timepoint.month,
-            day=1,
-            hour=0,
-            minute=0,
-            second=0,
-            tzinfo=pytz.utc)
-    while date.year >= 2011:
-        yield date
-        date = date - step
+    while day.year >= 2011:
+        yield day
+        day = prev_month(day)
 
 
 def main():
@@ -90,13 +62,13 @@ def main():
     tables = ("history", "history_uint", "history_text", "history_str")
     with psycopg2.connect(connstr) as c:
         c.autocommit = True  # Don't implicitly open a transaction
-        for date in work_backwards(timepoint=start):
+        for day in work_backwards(day=start):
             for table in tables:
                 with c.cursor() as curs:
-                    for x in migrate_old_data(table=table, year=date.year, month=date.month):
+                    for x in migrate_old_data(table=table, year=day.year, month=day.month):
                         curs.execute(x)
 
-                    for x in remove_old_table(table=table, year=date.year, month=date.month):
+                    for x in remove_old_table(table=table, year=day.year, month=day.month):
                         curs.execute(x)
 
 
