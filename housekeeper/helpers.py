@@ -89,6 +89,11 @@ def gen_last_month():
     yield prev_month(start_date)
 
 
+def gen_next_month():
+    start_date = datetime.utcnow().date()
+    yield next_month(start_date)
+
+
 def gen_monthdeltas(*, from_date=None, step=next_month):
     if from_date is None:
         from_date = datetime.utcnow().date()
