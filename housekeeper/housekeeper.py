@@ -164,28 +164,28 @@ def do_maintenance(connstr, cluster=False):
         for n, date in enumerate(gen_year_past()):
             previous_month = (n == 0)
             for table in tables:
-                with c.cursor() as curs:
-                    for x in clean_old_indexes(table=table, year=date.year, month=date.month):
-                            execute(curs, x)
+                for x in clean_old_indexes(table=table, year=date.year, month=date.month):
+                    with c.cursor() as curs:
+                        execute(curs, x)
 
-                with c.cursor() as curs:
-                    for x in clean_old_items(table=table, year=date.year, month=date.month):
-                            execute(curs, x)
+                for x in clean_old_items(table=table, year=date.year, month=date.month):
+                    with c.cursor() as curs:
+                        execute(curs, x)
 
                 if not previous_month:
-                    with c.cursor() as curs:
-                        for x in ensure_brin_index(table=table, year=date.year, month=date.month):
+                    for x in ensure_brin_index(table=table, year=date.year, month=date.month):
+                        with c.cursor() as curs:
                             execute(curs, x)
 
-                    with c.cursor() as curs:
-                        for x in clean_btree_index(table=table, year=date.year, month=date.month):
+                    for x in clean_btree_index(table=table, year=date.year, month=date.month):
+                        with c.cursor() as curs:
                             execute(curs, x)
 
         if cluster:
             for date in gen_last_month():
                 for table in tables:
-                    with c.cursor() as curs:
-                        for x in cluster_table(table=table, year=date.year, month=date.month):
+                    for x in cluster_table(table=table, year=date.year, month=date.month):
+                        with c.cursor() as curs:
                             execute(curs, x)
 
 
