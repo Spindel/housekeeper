@@ -6,11 +6,23 @@ from datetime import (
     timedelta,
     date,
 )
+import time
 
 
 DBCONFIG = "/etc/zabbix/zabbix.conf.d/database.conf"
 EPOCH = date(1970, 1, 1)
 MONTHISH = timedelta(days=31)
+
+
+def execute(cursor, query):
+    start = time.monotonic()
+    print(query)
+    result = cursor.execute(query)
+    end = time.monotonic()
+    elapsed = end - start
+    print("Elapsed: {:06.2f}".format(elapsed))
+    print("Result:  {}".format(result))
+    return result
 
 
 def timestamp(day):
