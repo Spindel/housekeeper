@@ -105,19 +105,16 @@ def cluster_table(table="history", year=2011, month=12):
     yield f"CREATE TABLE IF NOT EXISTS {temp_table} PARTITION OF {table} for values from ({start}) to ({stop});"
     yield "COMMIT;"
 
-    yield "-- Create an b-tree index so we can cluster"
     yield from ensure_btree_index(table=table, year=year, month=month)
     yield f"CLUSTER {tablename} USING {indexname};"
     yield from add_check_constraint(table=table, year=year, month=month)
     yield from clean_btree_index(table=table, year=year, month=month)
 
-    yield "-- Swap tables"
     yield "BEGIN TRANSACTION;"
     yield f"ALTER TABLE {table} DETACH PARTITION {temp_table};"
     yield from attach_partition(table=table, year=year, month=month)
     yield "COMMIT;"
 
-    yield "-- Move any data that arrived while we were detached"
     yield "BEGIN TRANSACTION;"
     yield f"INSERT INTO {tablename} SELECT * from {temp_table} order by itemid,clock;"
     yield f"DROP TABLE {temp_table};"
