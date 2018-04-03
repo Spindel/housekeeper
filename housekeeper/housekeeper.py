@@ -58,6 +58,12 @@ def clean_old_items(table="history", year=2011, month=12):
     yield f"DELETE FROM {table} WHERE itemid NOT IN (select itemid from items);"
 
 
+def create_item_statistics():
+    yield "CREATE STATISTICS IF NOT EXISTS s_items on itemid, name, key_, hostid from items;"
+
+def create_statistics(table="history"):
+    yield f"CREATE STATISTICS IF NOT EXISTS s_{table} on itemid, clock from {table};"
+
 def create_table_partition(table="history", year=2011, month=12):
     start, stop = get_start_and_stop(year=year, month=month)
     tablename = get_table_name(table=table, year=year, month=month)
@@ -147,6 +153,15 @@ def do_maintenance(connstr, cluster=False):
 
     with psycopg2.connect(connstr) as c:
         c.autocommit = True  # Don't implicitly open a transaction
+
+        # Create statistics ( let the auto-analyze function analyze later)
+        with c.cursor() as curs:
+            for x in create_item_statistics():
+                execute(curs, x)
+            for table in tables:
+                for x in create_statistics(table=table):
+                    execute(curs, x)
+
         for date in gen_current_and_future():
             for table in tables:
                 with c.cursor() as curs:
