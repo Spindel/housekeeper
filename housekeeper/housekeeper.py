@@ -61,8 +61,10 @@ def clean_old_items(table="history", year=2011, month=12):
 def create_item_statistics():
     yield "CREATE STATISTICS IF NOT EXISTS s_items on itemid, name, key_, hostid from items;"
 
+
 def create_statistics(table="history"):
     yield f"CREATE STATISTICS IF NOT EXISTS s_{table} on itemid, clock from {table};"
+
 
 def create_table_partition(table="history", year=2011, month=12):
     start, stop = get_start_and_stop(year=year, month=month)
@@ -145,6 +147,21 @@ def migrate_table(server, table="history", year=2011, month=12):
     yield f"INSERT INTO {tablename} SELECT * from {temp_table} order by itemid,clock;"
     yield f"DROP TABLE {temp_table};"
     yield f"ALTER TABLE {tablename} RENAME TO {tablename}_foreign;"
+    yield "COMMIT;"
+
+
+def migrate_config_items():
+    yield "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;"
+    yield ("insert into history_text (id, ns, itemid, clock, value) "
+           "  select 0, 0, itemid, clock, value from history_str where itemid in "
+           " (select itemid from items where name like 'mytemp.internal.conf%' and value_type=1);")
+
+    yield "update items set value_type=4 where name like 'mytemp.internal.conf%';"
+    yield "delete from items where name like 'mytemp.internal.change%';"
+    yield ("delete from history_str where itemid in "
+           "  ( select itemid from items "
+           "     where name like 'mytemp.internal.conf%' and value_type=4);"
+           )
     yield "COMMIT;"
 
 
