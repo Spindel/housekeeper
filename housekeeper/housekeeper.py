@@ -14,15 +14,8 @@ from .helpers import (
     gen_current_and_future,
     gen_year_past,
     gen_last_month,
-    gen_next_month,
+    gen_2014_to_current,
 )
-
-
-def gen_2014_to_2018():
-    day = datetime.date(year=2014, month=1, day=1)
-    while day.year < 2019:
-        yield day
-        day = gen_next_month(day)
 
 
 def clean_old_indexes(table="history", year=2011, month=12):
@@ -223,7 +216,7 @@ def do_maintenance(connstr, cluster=False):
 
 def oneshot_maintenance():
     tables = ("history", "history_uint", "history_text", "history_str")
-    for date in gen_2014_to_2018():
+    for date in gen_2014_to_current():
         for table in tables:
             yield from ensure_brin_index(table=table, year=date.year, month=date.month)
             yield from clean_old_indexes(table=table, year=date.year, month=date.month)

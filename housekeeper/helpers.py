@@ -40,7 +40,7 @@ def next_month(day):
     return (day.replace(day=15) + MONTHISH).replace(day=1)
 
 
-def connstring(filename=DBCONFIG):
+def conn_filename(filename=DBCONFIG):
     if not os.path.isfile(filename):
         print("No database config in {}".format(filename))
         sys.exit(1)
@@ -73,8 +73,20 @@ def connstring(filename=DBCONFIG):
             if line.startswith("DBPassword="):
                 dbpass = line.split("=", 1)[1].strip()
 
-    connstr = "dbname='%s' user='%s' host='%s' port='%s' password='%s'"
-    return connstr % (dbname, dbuser, dbhost, dbport, dbpass)
+    return (dbname, dbuser, dbhost, dbport, dbpass)
+
+
+def connstring(filename=DBCONFIG):
+    inputs = conn_filename(filename=filename)
+    output = "dbname='%s' user='%s' host='%s' port='%s' password='%s'"
+    return output % inputs
+
+
+def archive_connstring(filename=DBCONFIG):
+    dbname, dbuser, dbhost, dbport, dbpass = conn_filename(filename=filename)
+    output = "dbname='%s' user='%s' host='%s' port='%s' password='%s'"
+    dbhost = os.environ.get("ARCHIVE_DB")
+    return output % (dbname, dbuser, dbhost, dbport, dbpass)
 
 
 def get_table_name(table="history", year=2011, month=12):
@@ -159,3 +171,19 @@ def get_month_before_retention(start=None, retention=None):
 
     beginning = deduct_retention(start, retention)
     return prev_month(beginning)
+
+
+def gen_between(*, from_date=None, to_date):
+    if from_date is None:
+        from_date = date(year=2014, month=1, day=1)
+    months = gen_monthdeltas(from_date=from_date)
+    month = next(months)
+    while month < to_date:
+        yield month
+        month = next(months)
+
+
+def gen_2014_to_current():
+    start = date(year=2014, month=1, day=1)
+    end = datetime.now().date().replace(day=1)
+    yield from gen_between(from_date=start, to_date=end)
