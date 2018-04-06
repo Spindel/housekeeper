@@ -16,7 +16,9 @@ include build.mk
 
 .PHONY: check
 check:
-	$(Q)python3 setup.py flake8
+	$(Q)python3 setup.py flake8; $(RECORD_TEST_STATUS) \
+	mypy .; $(RECORD_TEST_STATUS) \
+	$(RETURN_TEST_STATUS)
 
 .PHONY: test
 test:

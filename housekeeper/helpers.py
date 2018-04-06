@@ -2,7 +2,6 @@ import sys
 import os
 
 from datetime import (
-    datetime,
     timedelta,
     date,
 )
@@ -25,22 +24,7 @@ def execute(cursor, query):
     return result
 
 
-def timestamp(day):
-    assert isinstance(day, date)
-    return int((day - EPOCH).total_seconds())
-
-
-def prev_month(day):
-    assert isinstance(day, date)
-    return (day.replace(day=15) - MONTHISH).replace(day=1)
-
-
-def next_month(day):
-    assert isinstance(day, date)
-    return (day.replace(day=15) + MONTHISH).replace(day=1)
-
-
-def conn_filename(filename=DBCONFIG):
+def load_connection_config(filename=DBCONFIG):
     if not os.path.isfile(filename):
         print("No database config in {}".format(filename))
         sys.exit(1)
@@ -77,13 +61,13 @@ def conn_filename(filename=DBCONFIG):
 
 
 def connstring(filename=DBCONFIG):
-    inputs = conn_filename(filename=filename)
+    inputs = load_connection_config(filename=filename)
     output = "dbname='%s' user='%s' host='%s' port='%s' password='%s'"
     return output % inputs
 
 
 def archive_connstring(filename=DBCONFIG):
-    dbname, dbuser, dbhost, dbport, dbpass = conn_filename(filename=filename)
+    dbname, dbuser, dbhost, dbport, dbpass = load_connection_config(filename=filename)
     output = "dbname='%s' user='%s' host='%s' port='%s' password='%s'"
     dbhost = os.environ.get("ARCHIVE_DB")
     return output % (dbname, dbuser, dbhost, dbport, dbpass)
@@ -100,90 +84,3 @@ def get_index_name(table="history", year=2011, month=12, kind="btree"):
 
 def get_constraint_name(table="history", year=2011, month=12):
     return f"{table}_y{year}m{month:02d}_check"
-
-
-def get_start_and_stop(year=2011, month=11):
-    start = date(year=year, month=month, day=1)
-    stop = next_month(start)
-    return timestamp(start), timestamp(stop)
-
-
-def gen_last_month():
-    start_date = datetime.utcnow().date()
-    yield prev_month(start_date)
-
-
-def gen_next_month():
-    start_date = datetime.utcnow().date()
-    yield next_month(start_date)
-
-
-def gen_monthdeltas(*, from_date=None, step=next_month):
-    if from_date is None:
-        from_date = datetime.utcnow().date()
-
-    day = from_date.replace(day=1)
-
-    yield day
-    while True:
-        day = step(day)
-        yield day
-
-
-def gen_current_and_future(date=None):
-    months = gen_monthdeltas(from_date=date, step=next_month)
-    for n in range(13):
-        yield next(months)
-
-
-def gen_quarters(start):
-    assert isinstance(start, date)
-    start = start.replace(month=1, day=1)
-    yield start
-    for x in range(4):
-        start = next_month(start)
-        start = next_month(start)
-        start = next_month(start)
-        yield start
-
-
-def gen_year_past(start=None):
-    months = gen_monthdeltas(from_date=start, step=prev_month)
-    next(months)
-    for n in range(13):
-        yield next(months)
-
-
-def deduct_retention(start, retention):
-    assert retention > 0
-    assert isinstance(start, date)
-
-    offset = retention * 86400
-    start_ts = timestamp(start) - offset
-    return datetime.utcfromtimestamp(start_ts).date()
-
-
-def get_month_before_retention(start=None, retention=None):
-    assert retention > 0
-    if start is None:
-        start = datetime.utcnow().date()
-    assert isinstance(start, date)
-
-    beginning = deduct_retention(start, retention)
-    return prev_month(beginning)
-
-
-def gen_between(*, from_date=None, to_date):
-    if from_date is None:
-        from_date = date(year=2014, month=1, day=1)
-    months = gen_monthdeltas(from_date=from_date)
-    month = next(months)
-    while month < to_date:
-        yield month
-        month = next(months)
-
-
-def gen_2014_to_current():
-    start = date(year=2014, month=1, day=1)
-    end = datetime.now().date().replace(day=1)
-    yield from gen_between(from_date=start, to_date=end)

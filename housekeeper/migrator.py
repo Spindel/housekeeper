@@ -4,17 +4,21 @@ import sys
 import itertools
 import psycopg2
 
+from .times import (
+    get_start_and_stop,
+    get_month_before_retention,
+    months_for_year_ahead,
+    months_for_year_past,
+    months_between,
+    months_2014_to_current,
+)
+
 from .helpers import (
+    get_table_name,
     archive_connstring,
     connstring,
     execute,
-    get_start_and_stop,
-    get_month_before_retention,
-    get_table_name,
-    gen_current_and_future,
-    gen_year_past,
-    gen_between,
-    gen_2014_to_current,
+    sql_if_tables_exist,
 )
 
 from .housekeeper import (
@@ -57,7 +61,7 @@ FOREIGN_NAMES = {
 }
 
 
-def get_archive():
+def get_retention():
     """
     environment variable MODIO_ARCHIVE in days is used to decide on how many
     days old data should be before being moved into the ARCHIVE"""
@@ -77,7 +81,7 @@ CREATE DATABASE "{username}" OWNER "{username}";
     print(initial_setup)
     as_postgres = f'SET ROLE "{username}";'
     print(as_postgres)
-    for date in gen_2014_to_current():
+    for date in months_2014_to_current():
         for table in FOREIGN_NAMES:
             for x in create_archive_table(table=table, year=date.year, month=date.month):
                 print(x)
@@ -121,7 +125,7 @@ def create_foreign_table(table="history", year=2011, month=12, remote="archive")
     yield f"    PARTITION OF {table} FOR VALUES FROM ({start}) TO ({stop}) SERVER {remote};"
 
 
-def sql_if_tables_exists(tables, query_iter):
+def sql_if_tables_exist(tables, query_iter):
     count = len(tables)
     tables_string = ", ".join("'{}'".format(t) for t in tables)
     yield "DO $$ BEGIN"
@@ -143,7 +147,7 @@ def migrate_table_to_archive(table="history", year=2011, month=12):
         create_foreign_table(table=table, year=year, month=month),
     )
     yield "BEGIN TRANSACTION;"
-    yield from sql_if_tables_exists(tables=[original_tablename], query_iter=query_iter)
+    yield from sql_if_tables_exist(tables=[original_tablename], query_iter=query_iter)
     yield "COMMIT;"
 
     tables = (remote_tablename, original_tablename)
@@ -153,7 +157,7 @@ def migrate_table_to_archive(table="history", year=2011, month=12):
         yield f"    INSERT INTO {remote_tablename} SELECT * FROM moved_rows ORDER BY itemid, clock;"
         yield f"DROP TABLE IF EXISTS {original_tablename};"
 
-    yield from sql_if_tables_exists(tables=tables, query_iter=query_iter())
+    yield from sql_if_tables_exist(tables=tables, query_iter=query_iter())
     yield ""
 
 
@@ -163,11 +167,11 @@ def archive_maintenance(connstr, cluster=False):
     with psycopg2.connect(connstr) as c:
         c.autocommit = True  # Don't implicitly open a transaction
         for table in tables:
-            for date in gen_current_and_future():
+            for date in months_for_year_ahead():
                 with c.cursor() as curs:
                     for x in create_archive_table(table=table, year=date.year, month=date.month):
                         execute(curs, x)
-            for date in gen_year_past():
+            for date in months_for_year_past():
                 with c.cursor() as curs:
                     for x in create_archive_table(table=table, year=date.year, month=date.month):
                         execute(curs, x)
@@ -176,12 +180,12 @@ def archive_maintenance(connstr, cluster=False):
 def migrate_data(connstr):
     tables = ("history", "history_uint", "history_text", "history_str")
 
-    retention = get_archive()
+    retention = get_retention()
     end = get_month_before_retention(retention=retention)
 
     with psycopg2.connect(connstr) as c:
         c.autocommit = True  # Don't implicitly open a transaction
-        for date in gen_between(to_date=end):
+        for date in months_between(to_date=end):
             for table in tables:
                 with c.cursor() as curs:
                     for x in migrate_table_to_archive(table=table, year=date.year, month=date.month):
@@ -190,10 +194,10 @@ def migrate_data(connstr):
 
 def oneshot_archive():
     tables = ("history", "history_uint", "history_text", "history_str")
-    retention = get_archive()
+    retention = get_retention()
     end = get_month_before_retention(retention=retention)
 
-    for date in gen_between(to_date=end):
+    for date in months_between(to_date=end):
         for table in tables:
             for x in create_archive_table(table=table, year=date.year, month=date.month):
                 print(x)
@@ -201,10 +205,10 @@ def oneshot_archive():
 
 def oneshot_migrate():
     tables = ("history", "history_uint", "history_text", "history_str")
-    retention = get_archive()
+    retention = get_retention()
     end = get_month_before_retention(retention=retention)
 
-    for date in gen_between(to_date=end):
+    for date in months_between(to_date=end):
         for table in tables:
             for x in migrate_table_to_archive(table=table, year=date.year, month=date.month):
                 print(x)

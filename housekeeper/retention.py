@@ -14,6 +14,9 @@ from datetime import (
 from .helpers import (
     connstring,
     get_table_name,
+)
+
+from .times import (
     prev_month,
     get_month_before_retention,
 )

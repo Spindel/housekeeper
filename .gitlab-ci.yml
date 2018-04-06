@@ -12,6 +12,7 @@ test:
     script:
         - pip3 install .[testing]
         - python3 setup.py test
+        - mypy .
         - python3 setup.py flake8
 
 container:
