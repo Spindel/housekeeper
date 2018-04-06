@@ -6,7 +6,7 @@ before_script:
     - uname -a
 
 test:
-    image: registry.gitlab.com/modioab/base-image:fedora-27-python-master
+    image: registry.gitlab.com/modioab/base-image:fedora-27-build-master
     stage: test
     when: always
     script:
