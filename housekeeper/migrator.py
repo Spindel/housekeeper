@@ -23,30 +23,30 @@ from .housekeeper import (
 
 CREATE_ROOT = {
     "history_str": """CREATE TABLE IF NOT EXISTS {tablename} (
-                          itemid bigint NOT NULL,
-                          clock integer NOT NULL CHECK (clock >= {start} and clock <{stop}),
-                          value character varying(255) NOT NULL,
-                          ns integer NOT NULL);""",
+                          itemid BIGINT NOT NULL,
+                          clock INTEGER NOT NULL CHECK (clock >= {start} AND clock < {stop}),
+                          value CHARACTER VARYING(255) NOT NULL,
+                          ns INTEGER NOT NULL);""",
 
     "history": """CREATE TABLE IF NOT EXISTS {tablename} (
-                          itemid bigint NOT NULL,
-                          clock integer NOT NULL CHECK (clock >= {start} and clock <{stop}),
-                          value numeric(16,4) NOT NULL,
-                          ns integer NOT NULL);""",
+                          itemid BIGINT NOT NULL,
+                          clock INTEGER NOT NULL CHECK (clock >= {start} AND clock < {stop}),
+                          value NUMERIC(16,4) NOT NULL,
+                          ns INTEGER NOT NULL);""",
 
     "history_text": """CREATE TABLE IF NOT EXISTS {tablename} (
-                          id bigint NOT NULL,
-                          itemid bigint NOT NULL,
-                          clock integer NOT NULL CHECK (clock >= {start} and clock <{stop}),
-                          value text NOT NULL,
-                          ns integer NOT NULL
+                          id BIGINT NOT NULL,
+                          itemid BIGINT NOT NULL,
+                          clock INTEGER NOT NULL CHECK (clock >= {start} AND clock < {stop}),
+                          value TEXT NOT NULL,
+                          ns INTEGER NOT NULL
                     );""",
 
     "history_uint": """CREATE TABLE IF NOT EXISTS {tablename} (
-                          itemid bigint NOT NULL,
-                          clock integer NOT NULL CHECK (clock >= {start} and clock <{stop}),
-                          value numeric(20,0) NOT NULL,
-                          ns integer NOT NULL);""",
+                          itemid BIGINT NOT NULL,
+                          clock INTEGER NOT NULL CHECK (clock >= {start} AND clock < {stop}),
+                          value NUMERIC(20,0) NOT NULL,
+                          ns INTEGER NOT NULL);""",
 }
 
 FOREIGN_NAMES = {
@@ -86,9 +86,13 @@ CREATE DATABASE "{username}" OWNER "{username}";
 def migrate_setup(username="moodio.se", password="0000-0000-0000-0000"):
     as_postgres = f"""
 CREATE EXTENSION IF NOT EXISTS postgres_fdw;
-CREATE SERVER IF NOT EXISTS archive FOREIGN DATA WRAPPER postgres_fdw OPTIONS (host 'db2.modio.dcl1.synotio.net' , port '5432', dbname '{username}', sslmode 'verify-full');
-CREATE USER MAPPING IF NOT EXISTS FOR "{username}" SERVER archive OPTIONS (user '{username}', password '{password}');
-CREATE USER MAPPING IF NOT EXISTS FOR "admin.{username}" SERVER archive OPTIONS (user '{username}', password '{password}');
+CREATE SERVER IF NOT EXISTS archive
+    FOREIGN DATA WRAPPER postgres_fdw
+    OPTIONS (host 'db2.modio.dcl1.synotio.net', port '5432', dbname '{username}', sslmode 'verify-full');
+CREATE USER MAPPING IF NOT EXISTS FOR "{username}"
+    SERVER archive OPTIONS (user '{username}', password '{password}');
+CREATE USER MAPPING IF NOT EXISTS FOR "admin.{username}"
+    SERVER archive OPTIONS (user '{username}', password '{password}');
 GRANT ALL ON FOREIGN SERVER "archive" to "{username}";
 SET ROLE "{username}";
 """
@@ -113,16 +117,17 @@ def create_foreign_table(table="history", year=2011, month=12, remote="archive")
     tname = FOREIGN_NAMES[table]
     tablename = get_table_name(table=tname, year=year, month=month)
     start, stop = get_start_and_stop(year=year, month=month)
-    yield f"CREATE FOREIGN TABLE IF NOT EXISTS {tablename} PARTITION OF {table} FOR VALUES FROM ({start}) TO ({stop}) SERVER {remote};"
+    yield f"CREATE FOREIGN TABLE IF NOT EXISTS {tablename}"
+    yield f"    PARTITION OF {table} FOR VALUES FROM ({start}) TO ({stop}) SERVER {remote};"
 
 
 def sql_if_tables_exists(tables, query_iter):
     count = len(tables)
     tables_string = ", ".join("'{}'".format(t) for t in tables)
     yield "DO $$ BEGIN"
-    yield f"""IF ( SELECT COUNT(*)={count} FROM information_schema.tables WHERE table_name IN ({tables_string})) THEN"""
+    yield f"IF (SELECT COUNT(*)={count} FROM information_schema.tables WHERE table_name IN ({tables_string})) THEN"
     yield from query_iter
-    yield """END IF; END $$;"""
+    yield "END IF; END $$;"
     yield ""
 
 
@@ -144,7 +149,8 @@ def migrate_table_to_archive(table="history", year=2011, month=12):
     tables = (remote_tablename, original_tablename)
 
     def query_iter():
-        yield f"""WITH moved_rows as ( DELETE FROM {original_tablename} a RETURNING a.* ) INSERT INTO {remote_tablename} SELECT * from moved_rows order by itemid, clock;"""
+        yield f"WITH moved_rows AS (DELETE FROM {original_tablename} a RETURNING a.*)"
+        yield f"    INSERT INTO {remote_tablename} SELECT * FROM moved_rows ORDER BY itemid, clock;"
         yield f"DROP TABLE IF EXISTS {original_tablename};"
 
     yield from sql_if_tables_exists(tables=tables, query_iter=query_iter())
@@ -206,9 +212,11 @@ def oneshot_migrate():
 
 def main():
     if len(sys.argv) != 2:
-        print("{}: command, (setup_archive, setup_migrate, oneshot_archive, oneshot_migrate, cron)".format(sys.argv[0]))
-        print("setup commands are to be run first on either system.")
-        print("Archive commands are to prepare the archive server")
+        print(f"Usage: {sys.argv[0]} {{ COMMAND }}")
+        print("where COMMAND := { setup_archive | setup_migrate | oneshot_archive | oneshot_migrate | cron }")
+        print()
+        print("Setup commands are to be run first on either system.")
+        print("Archive commands are to prepare the archive server.")
         sys.exit(1)
     command = sys.argv[1]
 
