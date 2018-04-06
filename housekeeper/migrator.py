@@ -4,6 +4,8 @@ import sys
 import itertools
 import psycopg2
 
+from textwrap import dedent
+
 from .times import (
     get_start_and_stop,
     get_month_before_retention,
@@ -73,12 +75,12 @@ def get_retention():
     return retention
 
 
-def archive_setup(username="moodio.se", password="0000-0000-0000-0000"):
+def archive_setup(username="example.com", password="0000-0000-0000-0000"):
     initial_setup = f"""
-CREATE ROLE "{username}" PASSWORD '{password}' NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT LOGIN;
-CREATE DATABASE "{username}" OWNER "{username}";
-"""
-    print(initial_setup)
+        CREATE ROLE "{username}" PASSWORD '{password}' NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT LOGIN;
+        CREATE DATABASE "{username}" OWNER "{username}";
+        """
+    print(dedent(initial_setup))
     as_postgres = f'SET ROLE "{username}";'
     print(as_postgres)
     for date in months_2014_to_current():
@@ -87,20 +89,21 @@ CREATE DATABASE "{username}" OWNER "{username}";
                 print(x)
 
 
-def migrate_setup(username="moodio.se", password="0000-0000-0000-0000"):
+def migrate_setup(username="example.com", password="0000-0000-0000-0000", host='db2.example.com'):
     as_postgres = f"""
-CREATE EXTENSION IF NOT EXISTS postgres_fdw;
-CREATE SERVER IF NOT EXISTS archive
-    FOREIGN DATA WRAPPER postgres_fdw
-    OPTIONS (host 'db2.modio.dcl1.synotio.net', port '5432', dbname '{username}', sslmode 'verify-full');
-CREATE USER MAPPING IF NOT EXISTS FOR "{username}"
-    SERVER archive OPTIONS (user '{username}', password '{password}');
-CREATE USER MAPPING IF NOT EXISTS FOR "admin.{username}"
-    SERVER archive OPTIONS (user '{username}', password '{password}');
-GRANT ALL ON FOREIGN SERVER "archive" to "{username}";
-SET ROLE "{username}";
-"""
-    print(as_postgres)
+        CREATE EXTENSION IF NOT EXISTS postgres_fdw;
+        CREATE SERVER IF NOT EXISTS archive
+        FOREIGN DATA WRAPPER postgres_fdw
+            OPTIONS (host '{host}', port '5432', dbname '{username}', sslmode 'verify-full');
+        CREATE USER MAPPING IF NOT EXISTS FOR "{username}"
+            SERVER archive
+            OPTIONS (user '{username}', password '{password}');
+        CREATE USER MAPPING IF NOT EXISTS FOR "admin.{username}"
+            SERVER archive
+            OPTIONS (user '{username}', password '{password}');
+        GRANT ALL ON FOREIGN SERVER "archive" to "{username}";
+        SET ROLE "{username}";"""
+    print(dedent(as_postgres))
 
 
 def create_archive_table(table="history", year=2011, month=12):
@@ -121,18 +124,20 @@ def create_foreign_table(table="history", year=2011, month=12, remote="archive")
     tname = FOREIGN_NAMES[table]
     tablename = get_table_name(table=tname, year=year, month=month)
     start, stop = get_start_and_stop(year=year, month=month)
-    yield f"CREATE FOREIGN TABLE IF NOT EXISTS {tablename}"
-    yield f"    PARTITION OF {table} FOR VALUES FROM ({start}) TO ({stop}) SERVER {remote};"
+    yield dedent(f"""
+        CREATE FOREIGN TABLE IF NOT EXISTS {tablename}
+        PARTITION OF {table} FOR VALUES FROM ({start}) TO ({stop}) SERVER {remote};""")
 
 
 def sql_if_tables_exist(tables, query_iter):
     count = len(tables)
     tables_string = ", ".join("'{}'".format(t) for t in tables)
-    yield "DO $$ BEGIN"
-    yield f"IF (SELECT COUNT(*)={count} FROM information_schema.tables WHERE table_name IN ({tables_string})) THEN"
-    yield from query_iter
-    yield "END IF; END $$;"
-    yield ""
+    query_string = '\n'.join(x for x in query_iter)
+    yield dedent(f"""
+        DO $$ BEGIN
+        IF (SELECT COUNT(*)={count} FROM information_schema.tables WHERE table_name IN ({tables_string})) THEN
+        {query_string}
+        END IF; END $$;""")
 
 
 def migrate_table_to_archive(table="history", year=2011, month=12):
@@ -153,12 +158,12 @@ def migrate_table_to_archive(table="history", year=2011, month=12):
     tables = (remote_tablename, original_tablename)
 
     def query_iter():
-        yield f"WITH moved_rows AS (DELETE FROM {original_tablename} a RETURNING a.*)"
-        yield f"    INSERT INTO {remote_tablename} SELECT * FROM moved_rows ORDER BY itemid, clock;"
+        yield dedent(f"""
+            WITH moved_rows AS (DELETE FROM {original_tablename} a RETURNING a.*)
+                INSERT INTO {remote_tablename} SELECT * FROM moved_rows ORDER BY itemid, clock;""")
         yield f"DROP TABLE IF EXISTS {original_tablename};"
 
     yield from sql_if_tables_exist(tables=tables, query_iter=query_iter())
-    yield ""
 
 
 def archive_maintenance(connstr, cluster=False):
