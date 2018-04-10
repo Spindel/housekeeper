@@ -41,7 +41,7 @@ Then, you can do a one-time archive ( move all existing data ) by running `migra
 
 
 The actual offloading assumes you're already using a partitioned database with our namingscheme for partitions.
-the SQL output to be used and re-used as needed.  Make sure it's run with the correct user, or your permissions will be off.
+Make sure it's run with the correct user, or your permissions will be off.
 
 
 ## Oneshot use:    
