@@ -82,11 +82,6 @@ def archive_setup(username="example.com", password="0000-0000-0000-0000"):
         """
     print(dedent(initial_setup))
     as_postgres = f'SET ROLE "{username}";'
-    print(as_postgres)
-    for date in months_2014_to_current():
-        for table in FOREIGN_NAMES:
-            for x in create_archive_table(table=table, year=date.year, month=date.month):
-                print(x)
 
 
 def migrate_setup(username="example.com", password="0000-0000-0000-0000", host='db2.example.com'):
@@ -163,7 +158,9 @@ def migrate_table_to_archive(table="history", year=2011, month=12):
                 INSERT INTO {remote_tablename} SELECT * FROM moved_rows ORDER BY itemid, clock;""")
         yield f"DROP TABLE IF EXISTS {original_tablename};"
 
+    yield "BEGIN TRANSACTION;"
     yield from sql_if_tables_exist(tables=tables, query_iter=query_iter())
+    yield "COMMIT;"
 
 
 def archive_maintenance(connstr, cluster=False):
