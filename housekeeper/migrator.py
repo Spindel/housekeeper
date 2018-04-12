@@ -2,7 +2,10 @@
 import os
 import sys
 import itertools
+import threading
+import time
 import psycopg2
+import logging
 
 from textwrap import dedent
 
@@ -12,7 +15,6 @@ from .times import (
     months_for_year_ahead,
     months_for_year_past,
     months_between,
-    months_2014_to_current,
 )
 
 from .helpers import (
@@ -63,6 +65,9 @@ FOREIGN_NAMES = {
 }
 
 
+log = logging.getLogger()
+
+
 def get_retention():
     """
     environment variable MODIO_ARCHIVE in days is used to decide on how many
@@ -82,6 +87,7 @@ def archive_setup(username="example.com", password="0000-0000-0000-0000"):
         """
     print(dedent(initial_setup))
     as_postgres = f'SET ROLE "{username}";'
+    print(as_postgres)
 
 
 def migrate_setup(username="example.com", password="0000-0000-0000-0000", host='db2.example.com'):
@@ -135,10 +141,105 @@ def sql_if_tables_exist(tables, query_iter):
         END IF; END $$;""")
 
 
-def migrate_table_to_archive(table="history", year=2011, month=12):
-    tname = FOREIGN_NAMES[table]
+def table_exists(conn, table="history"):
+    select = f"select count(*)=1 from pg_tables where tablename='{table}';"
+    with conn.cursor() as c:
+        c.execute(select)
+        res = c.fetchone()
+        return res[0]
+
+
+def python_migrate_table_to_archive(src_conn, dst_conn, table="history", year=2011, month=12):
+    """This uses python code and threads to transfer data between tables.
+    While the method is generic, there cannot be a transaction for COPY
+    operations (other than read data) and we cannot verify the data exists in
+    the target before deleting it.
+
+    Since we use partitions, we know there won't be writing to our source table
+    while this code runs, so it's "safe" to forego using transactions.
+
+    This code also assumes that if nothing breaks during the two COPY jobs,
+    it's okay to truncate the source table.
+    """
+
+    arname = FOREIGN_NAMES[table]
+    src_table = get_table_name(table=table, year=year, month=month)
+    dst_table = get_table_name(table=arname, year=year, month=month)
+    start, stop = get_start_and_stop(year=year, month=month)
+
+    # option 1, create sorted temp table.
+    # * How do I remove data from orig table once transfer is done?
+    # * How do I know that I'm not deleting data that arrived in between
+    #     I created temp table and done?
+
+    # option 2, Ignore order, hope it's correct, just copy & delete.
+    # * using copy ( delete * from {} del returning del.*) TO STDOUT
+    # * this loses _all_ data from source in case error happens on remote.
+
+    # option 3, try to delete & sort in order without creating a giant buffer
+    # * delete from where ctid in (select ...)  fails because it sorts by ctid
+    #  with delete... as ; fails because it's not valid for COPY
+
+    # FOR FUCKS SAKE SQL, WHY DO YOU MAKE MY LIFE PAINFUL?
+
+    if not table_exists(conn=src_conn, table=src_table):
+        return
+    if not table_exists(conn=dst_conn, table=dst_table):
+        return
+    src_query = "COPY (SELECT * FROM {} ORDER BY itemid, clock) TO STDOUT;".format(src_table)
+
+    log.info("Tables %s and %s exists, starting data transfer", src_table, dst_table)
+
+    # a pipe to read/write with, will be wrapped in file handles for the sake
+    # of the API
+    readEnd, writeEnd = os.pipe()
+
+    def copy_from():
+        """Internal function for the thread"""
+
+        start = time.monotonic()
+        fil = os.fdopen(readEnd)
+        with dst_conn.cursor() as c:
+            # Copy has no return value, we cannot see how many rows were
+            # transferred
+            c.copy_from(fil, dst_table)
+        dst_conn.commit()
+        fil.close()
+        elapsed = time.monotonic() - start
+        log.info("Spent %ss writing to %s", elapsed, dst_table)
+
+    archive_side = threading.Thread(target=copy_from)
+    archive_side.start()
+
+    # Explicit write flag on the write side.
+    fil = os.fdopen(writeEnd, 'w')
+    start = time.monotonic()
+
+    # If the below fails (disk full, similar) we cannot terminate the
+    # copy_from thread, and will thus leak a db connection until the program
+    # terminates
+
+    with src_conn.cursor() as c:
+        c.copy_expert(src_query, fil)
+        fil.close()  # Important, otherwise you deadlock
+        elapsed = time.monotonic() - start
+        log.info("Spent %ss reading from %s", elapsed, src_table)
+
+    # The read is done, the receiving thread may take longer time to work it
+    # out. Wait for it.
+    try:
+        archive_side.join()
+    except Exception:
+        log.error("Trouble receiving data for some reason. Not cleaning up")
+        return
+
+    # We now have a clean copy of the detached table. Time to empty it
+    with src_conn.cursor() as c:
+        execute(c, f"TRUNCATE TABLE {src_table};")
+
+
+def swap_live_and_archive_tables(table="history", year=2011, month=12):
     original_tablename = get_table_name(table=table, year=year, month=month)
-    remote_tablename = get_table_name(table=tname, year=year, month=month)
 
     start, stop = get_start_and_stop(year=year, month=month)
 
@@ -149,6 +250,14 @@ def migrate_table_to_archive(table="history", year=2011, month=12):
     yield "BEGIN TRANSACTION;"
     yield from sql_if_tables_exist(tables=[original_tablename], query_iter=query_iter)
     yield "COMMIT;"
+
+
+def migrate_table_to_archive(table="history", year=2011, month=12):
+    tname = FOREIGN_NAMES[table]
+    original_tablename = get_table_name(table=table, year=year, month=month)
+    remote_tablename = get_table_name(table=tname, year=year, month=month)
+
+    yield from swap_live_and_archive_tables(table=table, year=year, month=month)
 
     tables = (remote_tablename, original_tablename)
 
@@ -179,19 +288,26 @@ def archive_maintenance(connstr, cluster=False):
                         execute(curs, x)
 
 
-def migrate_data(connstr):
-    tables = ("history", "history_uint", "history_text", "history_str")
+def migrate_data(source_connstr, dest_connstr):
+    tables = ("history",  "history_uint", "history_text", "history_str")
 
     retention = get_retention()
     end = get_month_before_retention(retention=retention)
 
-    with psycopg2.connect(connstr) as c:
-        c.autocommit = True  # Don't implicitly open a transaction
+    with psycopg2.connect(source_connstr) as source, psycopg2.connect(dest_connstr) as dest:
+        source.autocommit = True  # Don't implicitly open a transaction
+        dest.autocommit = True
         for date in months_between(to_date=end):
             for table in tables:
-                with c.cursor() as curs:
-                    for x in migrate_table_to_archive(table=table, year=date.year, month=date.month):
-                        execute(curs, x)
+                with source.cursor() as curs:
+                    for x in swap_live_and_archive_tables(table=table, year=date.year, month=date.month):
+                        try:
+                            execute(curs, x)
+                        except psycopg2.ProgrammingError:
+                            pass
+
+                python_migrate_table_to_archive(src_conn=source, dst_conn=dest,
+                                                table=table, year=date.year, month=date.month)
 
 
 def oneshot_archive():
@@ -217,9 +333,11 @@ def oneshot_migrate():
 
 
 def main():
+    logging.basicConfig(level=logging.INFO, format='%(relativeCreated)6d %(threadName)s %(message)s')
+
     if len(sys.argv) != 2:
         print(f"Usage: {sys.argv[0]} {{ COMMAND }}")
-        print("where COMMAND := { setup_archive | setup_migrate | oneshot_archive | oneshot_migrate | cron }")
+        print("where COMMAND := { setup_archive | setup_migrate | oneshot_archive | slow_migrate | cron }")
         print()
         print("Setup commands are to be run first on either system.")
         print("Archive commands are to prepare the archive server.")
@@ -232,13 +350,14 @@ def main():
         migrate_setup()
     elif command == "oneshot_archive":
         oneshot_archive()
-    elif command == "oneshot_migrate":
+    elif command == "slow_migrate":
         oneshot_migrate()
     elif command == "cron":
-        connstr = archive_connstring()
-        archive_maintenance(connstr=connstr)
-        connstr = connstring()
-        migrate_data(connstr=connstr)
+        archive_connstr = archive_connstring()
+        archive_maintenance(connstr=archive_connstr)
+        source_connstr = connstring()
+        migrate_data(src_connstr=source_connstr,
+                     dst_connstr=archive_connstr)
 
 
 if __name__ == '__main__':

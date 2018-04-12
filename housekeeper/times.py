@@ -14,6 +14,10 @@ EPOCH = date(1970, 1, 1)
 MONTHISH = timedelta(days=31)
 
 
+def this_day() -> date:
+    return datetime.utcnow().date().replace(day=1)
+
+
 def timestamp(day: date) -> int:
     return int((day - EPOCH).total_seconds())
 
@@ -66,13 +70,17 @@ def gen_quarters(start: date) -> Iterator[date]:
         yield start
 
 
-def months_for_year_ahead(start: date) -> Iterator[date]:
+def months_for_year_ahead(start: Optional[date]=None) -> Iterator[date]:
+    if start is None:
+        start = this_day()
     months = gen_monthdeltas(from_date=start, step=next_month)
     for n in range(13):
         yield next(months)
 
 
-def months_for_year_past(start: date) -> Iterator[date]:
+def months_for_year_past(start: Optional[date]=None) -> Iterator[date]:
+    if start is None:
+        start = this_day()
     months = gen_monthdeltas(from_date=start, step=prev_month)
     next(months)
     for n in range(13):
