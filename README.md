@@ -37,11 +37,24 @@ the year 2014 and until today's date. 2014 was picked because we don't have
 older data than that.
 
 
-Then, you can do a one-time archive ( move all existing data ) by running `migration oneshot_migrate`.
+Then, you can do a one-time archive ( move all existing data ) by running
+`migration slow_migrate`. This is really REALLY slow, you're usually better off
+importing a backup ( `psql copy to | psql copy from` ).
 
 
-The actual offloading assumes you're already using a partitioned database with our namingscheme for partitions.
-Make sure it's run with the correct user, or your permissions will be off.
+The actual offloading assumes you're already using a partitioned database with
+our namingscheme for partitions. Make sure it's run with the correct user, or
+your permissions will be off.
+
+## DB setup notes
+
+archive DB needs pg_hba setup with users, database an others from:
+
+* main db
+* machine where maintenance job goes
+
+Since the maintenance job (archiver) connects to both main and alternate db to
+transfer data
 
 
 ## Oneshot use:    

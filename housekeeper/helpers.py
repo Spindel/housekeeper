@@ -68,6 +68,7 @@ def archive_connstring(filename=DBCONFIG):
     dbname, dbuser, dbhost, dbport, dbpass = load_connection_config(filename=filename)
     output = "dbname='%s' user='%s' host='%s' port='%s' password='%s'"
     dbhost = os.environ.get("ARCHIVE_DB")
+    dbport = os.environ.get("ARCHIVE_DBPORT", dbport)
     return output % (dbname, dbuser, dbhost, dbport, dbpass)
 
 
