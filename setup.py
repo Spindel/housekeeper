@@ -57,7 +57,7 @@ setup(
             'housekeeper = housekeeper.housekeeper:main',
             'retention = housekeeper.retention:main',
             'partition = housekeeper.partition:main',
-            'migrator = housekeeper.migrator:main',
+            'archiver = housekeeper.archiver:main',
         ]
     },
 )

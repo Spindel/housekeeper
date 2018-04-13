@@ -17,9 +17,9 @@ Takes a configuration variable for how long (in days) to keep data, via the
 environment.  It will remove partitions older than that.
 
 
-## Migration
+## Archiver
 
-The migration tool is badly named, but moves data into an `archive` database.  
+The archiver tool moves data into an `archive` database.  
 
 
 This requires a LOT of setup between the two, parts of which is documented in
@@ -51,8 +51,7 @@ Make sure it's run with the correct user, or your permissions will be off.
 3. create foreign data wrapper on primary server
 4. create user mappings on primary server
 5. create archive tables on archive db
-6. migrate tables from primary server to archive server
- 
+
 
 ## cron use: 
 

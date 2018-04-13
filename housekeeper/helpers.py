@@ -1,4 +1,3 @@
-import sys
 import os
 
 from datetime import (
@@ -15,19 +14,18 @@ MONTHISH = timedelta(days=31)
 
 def execute(cursor, query):
     start = time.monotonic()
-    print(query)
+    print(f"/* {query} /*")
     result = cursor.execute(query)
     end = time.monotonic()
     elapsed = end - start
-    print("Elapsed: {:06.2f}".format(elapsed))
-    print("Result:  {}".format(result))
+    print(f"/* Elapsed: {elapsed:06.2f}"
+          f"  Result:  {result} */")
     return result
 
 
 def load_connection_config(filename=DBCONFIG):
     if not os.path.isfile(filename):
-        print("No database config in {}".format(filename))
-        sys.exit(1)
+        raise SystemExit(f"No database config in {filename}")
 # File looks like
     """
     # DB settings\n
