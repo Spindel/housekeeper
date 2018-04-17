@@ -356,8 +356,8 @@ def main():
         archive_connstr = archive_connstring()
         archive_maintenance(connstr=archive_connstr)
         source_connstr = connstring()
-        migrate_data(src_connstr=source_connstr,
-                     dst_connstr=archive_connstr)
+        migrate_data(source_connstr=source_connstr,
+                     dest_connstr=archive_connstr)
 
 
 if __name__ == '__main__':

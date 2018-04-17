@@ -66,9 +66,14 @@ def connstring(filename=DBCONFIG):
 
 def archive_connstring(filename=DBCONFIG):
     dbname, dbuser, dbhost, dbport, dbpass = load_connection_config(filename=filename)
-    output = "dbname='%s' user='%s'"
-    dbhost = os.environ.get("ARCHIVE_DB")
-    return output % (dbname, dbuser)
+    output = "host='%s' port='%s' dbname='%s' user='%s' password='%s' sslmode='%s'"
+    dbname = os.environ.get("ARCHIVE_PGDATABASE", dbname)
+    dbhost = os.environ.get("ARCHIVE_PGHOST", dbhost)
+    dbport = os.environ.get("ARCHIVE_PGPORT", dbport)
+    dbuser = os.environ.get("ARCHIVE_PGUSER", dbuser)
+    dbpassword = os.environ.get("ARCHIVE_PGPASSWORD", dbpass)
+    dbsslmode = os.environ.get("ARCHIVE_PGSSLMODE", "prefer")
+    return output % (dbhost, dbport, dbname, dbuser, dbpassword, dbsslmode)
 
 
 def get_table_name(table="history", year=2011, month=12):
