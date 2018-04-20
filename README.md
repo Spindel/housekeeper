@@ -57,25 +57,29 @@ Since the maintenance job (archiver) connects to both main and alternate db to
 transfer data
 
 
-## Oneshot use:    
+## Setup use performs:    
 
 1. create db user on archive db server
 2. create db on archive db server
 3. create foreign data wrapper on primary server
 4. create user mappings on primary server
-5. create archive tables on archive db
+
+# Oneshot archive
+
+5. Outputs SQL to create archive tables on archive db
 
 
 ## cron use: 
 
-Set up tool to run weekly or similar, and set up a time limit for your retention.
+Set up tool to run weekly or similar, and set up a time limit for your
+retention. The cron job will iterate over all partitions older than the archive
+retention, and migrate them to the archive DB. This will be done first with a
+COPY job, and then a second pass select/insert, and clean out of the table.
 
 
 Open questions:
 
-This doesn't quite work together with the retention tool. Should the two be merged together?
-(either you have archival db, or you have retention.  Don't do both, as that causes failures )
+This doesn't quite work together with the retention tool. Should the two be
+merged together? (either you have archival db, or you have retention.  Don't do
+both, as the retention tool doesn't know about archive tables )
 
-
-# License
-GPLv3, because you deserve it
