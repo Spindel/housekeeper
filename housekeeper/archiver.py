@@ -305,12 +305,17 @@ def migrate_data(source_connstr, dest_connstr):
                             execute(curs, x)
                         except psycopg2.ProgrammingError:
                             pass
-
+                # First we do the high performance COPY operation
                 python_migrate_table_to_archive(src_conn=source, dst_conn=dest,
                                                 table=table, year=date.year, month=date.month)
+                # Then we do the slow performance one that also cleans out the
+                # tables.
+                with source.cursor() as curs:
+                    for x in migrate_table_to_archive(table=table, year=date.year, month=date.month):
+                        execute(curs, x)
 
 
-def oneshot_archive():
+def oneshot_archive(connstr):
     tables = ("history", "history_uint", "history_text", "history_str")
     retention = get_retention()
     end = get_month_before_retention(retention=retention)
@@ -321,7 +326,7 @@ def oneshot_archive():
                 print(x)
 
 
-def oneshot_migrate():
+def oneshot_migrate(connstr):
     tables = ("history", "history_uint", "history_text", "history_str")
     retention = get_retention()
     end = get_month_before_retention(retention=retention)
@@ -337,10 +342,14 @@ def main():
 
     if len(sys.argv) != 2:
         print(f"Usage: {sys.argv[0]} {{ COMMAND }}")
-        print("where COMMAND := { setup_archive | setup_migrate | oneshot_archive | slow_migrate | cron }")
+        print("where COMMAND := { setup_archive | setup_migrate | oneshot_archive | cron }")
         print()
         print("Setup commands are to be run first on either system.")
-        print("Archive commands are to prepare the archive server.")
+        print("oneshot_archive sets up the archive tables on the archive server")
+        print("cron: Creates archive tables on the the archive db for the past"
+              "year, and the year ahead.")
+        print("Then it migrates all tables older than MODIO_ARCHIVE days from"
+              "the source to the archive db, finally cleaning out the old tables")
         sys.exit(1)
     command = sys.argv[1]
 
@@ -350,8 +359,6 @@ def main():
         migrate_setup()
     elif command == "oneshot_archive":
         oneshot_archive()
-    elif command == "slow_migrate":
-        oneshot_migrate()
     elif command == "cron":
         archive_connstr = archive_connstring()
         archive_maintenance(connstr=archive_connstr)
