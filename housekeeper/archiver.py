@@ -81,6 +81,9 @@ def get_retention():
 
 
 def archive_setup(username="example.com", password="0000-0000-0000-0000"):
+    username = os.getenv("ARCHIVE_PGUSER", username)
+    password = os.getenv("ARCHIVE_PGPASSWORD", password)
+
     initial_setup = f"""
         CREATE ROLE "{username}" PASSWORD '{password}' NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT LOGIN;
         CREATE DATABASE "{username}" OWNER "{username}";
@@ -91,11 +94,17 @@ def archive_setup(username="example.com", password="0000-0000-0000-0000"):
 
 
 def migrate_setup(username="example.com", password="0000-0000-0000-0000", host='db2.example.com'):
+    host = os.getenv("ARCHIVE_PGHOST", host)
+    username = os.getenv("ARCHIVE_PGUSER", username)
+    password = os.getenv("ARCHIVE_PGPASSWORD", password)
+    port = os.getenv("ARCHIVE_DBPORT", "5432")
+    sslmode = os.getenv("ARCHIVE_SSLMODE", "verify-full")
+
     as_postgres = f"""
         CREATE EXTENSION IF NOT EXISTS postgres_fdw;
         CREATE SERVER IF NOT EXISTS archive
         FOREIGN DATA WRAPPER postgres_fdw
-            OPTIONS (host '{host}', port '5432', dbname '{username}', sslmode 'verify-full');
+            OPTIONS (host '{host}', port '{port}', dbname '{username}', sslmode '{sslmode}');
         CREATE USER MAPPING IF NOT EXISTS FOR "{username}"
             SERVER archive
             OPTIONS (user '{username}', password '{password}');
@@ -320,13 +329,17 @@ def oneshot_archive(connstr):
     retention = get_retention()
     end = get_month_before_retention(retention=retention)
 
-    for date in months_between(to_date=end):
-        for table in tables:
-            for x in create_archive_table(table=table, year=date.year, month=date.month):
-                print(x)
+    with psycopg2.connect(connstr) as conn:
+        conn.autocommit = True  # Don't implicitly open a transaction
+
+        for date in months_between(to_date=end):
+            for table in tables:
+                with conn.cursor() as curs:
+                    for x in create_archive_table(table=table, year=date.year, month=date.month):
+                        execute(curs, x)
 
 
-def oneshot_migrate(connstr):
+def oneshot_migrate():
     tables = ("history", "history_uint", "history_text", "history_str")
     retention = get_retention()
     end = get_month_before_retention(retention=retention)
@@ -358,7 +371,8 @@ def main():
     elif command == "setup_migrate":
         migrate_setup()
     elif command == "oneshot_archive":
-        oneshot_archive()
+        archive_connstr = archive_connstring()
+        oneshot_archive(archive_connstr)
     elif command == "cron":
         archive_connstr = archive_connstring()
         archive_maintenance(connstr=archive_connstr)
