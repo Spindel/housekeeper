@@ -266,8 +266,6 @@ def migrate_table_to_archive(table="history", year=2011, month=12):
     original_tablename = get_table_name(table=table, year=year, month=month)
     remote_tablename = get_table_name(table=tname, year=year, month=month)
 
-    yield from swap_live_and_archive_tables(table=table, year=year, month=month)
-
     tables = (remote_tablename, original_tablename)
 
     def query_iter():
