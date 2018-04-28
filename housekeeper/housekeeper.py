@@ -55,13 +55,21 @@ def clean_btree_index(table="history", year=2011, month=12):
 
 def clean_old_items(table="history", year=2011, month=12):
     table = get_table_name(table=table, year=year, month=month)
-    yield f"DELETE FROM {table} WHERE itemid NOT IN (select itemid from items);"
+    yield f"DELETE FROM {table} WHERE itemid NOT IN (select itemid FROM items);"
+
+
+def create_item_statistics():
+    yield "CREATE STATISTICS IF NOT EXISTS s_items ON itemid, name, key_, hostid FROM items;"
+
+
+def create_statistics(table="history"):
+    yield f"CREATE STATISTICS IF NOT EXISTS s_{table} ON itemid, clock FROM {table};"
 
 
 def create_table_partition(table="history", year=2011, month=12):
     start, stop = get_start_and_stop(year=year, month=month)
     tablename = get_table_name(table=table, year=year, month=month)
-    yield f"CREATE TABLE IF NOT EXISTS {tablename} PARTITION OF {table} for values from ({start}) to ({stop});"
+    yield f"CREATE TABLE IF NOT EXISTS {tablename} PARTITION OF {table} FOR values FROM ({start}) TO ({stop});"
 
 
 def detach_partition(table="history", year=2011, month=12):
@@ -102,7 +110,7 @@ def cluster_table(table="history", year=2011, month=12):
 
     yield "BEGIN TRANSACTION;"
     yield from detach_partition(table=table, year=year, month=month)
-    yield f"CREATE TABLE IF NOT EXISTS {temp_table} PARTITION OF {table} for values from ({start}) to ({stop});"
+    yield f"CREATE TABLE IF NOT EXISTS {temp_table} PARTITION OF {table} FOR VALUES FROM ({start}) TO ({stop});"
     yield "COMMIT;"
 
     yield from ensure_btree_index(table=table, year=year, month=month)
@@ -116,7 +124,7 @@ def cluster_table(table="history", year=2011, month=12):
     yield "COMMIT;"
 
     yield "BEGIN TRANSACTION;"
-    yield f"INSERT INTO {tablename} SELECT * from {temp_table} order by itemid,clock;"
+    yield f"INSERT INTO {tablename} SELECT * FROM {temp_table} ORDER BY itemid, clock;"
     yield f"DROP TABLE {temp_table};"
     yield "COMMIT;"
 
@@ -142,11 +150,35 @@ def migrate_table(server, table="history", year=2011, month=12):
     yield "COMMIT;"
 
 
+def migrate_config_items():
+    yield "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;"
+    yield ("INSERT INTO history_text (id, ns, itemid, clock, value) "
+           "  SELECT 0, 0, itemid, clock, value FROM history_str WHERE itemid IN "
+           " (SELECT itemid FROM items WHERE name LIKE 'mytemp.internal.conf%' AND value_type=1);")
+
+    yield "UPDATE items SET value_type=4 WHERE name LIKE 'mytemp.internal.conf%';"
+    yield "DELETE FROM items WHERE name LIKE 'mytemp.internal.change%';"
+    yield ("DELETE FROM history_str WHERE itemid IN "
+           "  ( SELECT itemid FROM items "
+           "     WHERE name LIKE 'mytemp.internal.conf%' AND value_type=4);"
+           )
+    yield "COMMIT;"
+
+
 def do_maintenance(connstr, cluster=False):
     tables = ("history", "history_uint", "history_text", "history_str")
 
     with psycopg2.connect(connstr) as c:
         c.autocommit = True  # Don't implicitly open a transaction
+
+        # Create statistics ( let the auto-analyze function analyze later)
+        with c.cursor() as curs:
+            for x in create_item_statistics():
+                execute(curs, x)
+            for table in tables:
+                for x in create_statistics(table=table):
+                    execute(curs, x)
+
         for date in gen_current_and_future():
             for table in tables:
                 with c.cursor() as curs:
