@@ -195,7 +195,7 @@ def python_migrate_table_to_archive(src_conn, dst_conn, table="history", year=20
         return
     if not table_exists(conn=dst_conn, table=dst_table):
         return
-    src_query = "COPY (SELECT * FROM {} ORDER BY itemid, clock) TO STDOUT;".format(src_table)
+    src_query = f"COPY (SELECT * FROM {src_table} ORDER BY itemid, clock) TO STDOUT;"
 
     log.info("Tables %s and %s exists, starting data transfer", src_table, dst_table)
 
@@ -207,13 +207,13 @@ def python_migrate_table_to_archive(src_conn, dst_conn, table="history", year=20
         """Internal function for the thread"""
 
         start = time.monotonic()
-        fil = os.fdopen(readEnd)
+        sql_file = os.fdopen(readEnd)
         with dst_conn.cursor() as c:
             # Copy has no return value, we cannot see how many rows were
             # transferred
-            c.copy_from(fil, dst_table)
+            c.copy_from(sql_file, dst_table)
         dst_conn.commit()
-        fil.close()
+        sql_file.close()
         elapsed = time.monotonic() - start
         log.info("Spent %ss writing to %s", elapsed, dst_table)
 
@@ -221,7 +221,7 @@ def python_migrate_table_to_archive(src_conn, dst_conn, table="history", year=20
     archive_side.start()
 
     # Explicit write flag on the write side.
-    fil = os.fdopen(writeEnd, 'w')
+    sql_file = os.fdopen(writeEnd, 'w')
     start = time.monotonic()
 
     # If the below fails (disk full, similar) we cannot terminate the
@@ -229,8 +229,8 @@ def python_migrate_table_to_archive(src_conn, dst_conn, table="history", year=20
     # terminates
 
     with src_conn.cursor() as c:
-        c.copy_expert(src_query, fil)
-        fil.close()  # Important, otherwise you deadlock
+        c.copy_expert(src_query, sql_file)
+        sql_file.close()  # Important, otherwise you deadlock
         elapsed = time.monotonic() - start
         log.info("Spent %ss reading from %s", elapsed, src_table)
 
