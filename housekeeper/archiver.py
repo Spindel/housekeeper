@@ -22,7 +22,6 @@ from .helpers import (
     archive_connstring,
     connstring,
     execute,
-    sql_if_tables_exist,
 )
 
 from .housekeeper import (
