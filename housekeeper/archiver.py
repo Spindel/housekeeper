@@ -26,7 +26,6 @@ from .helpers import (
 
 from .housekeeper import (
     ensure_brin_index,
-    do_cluster_operation,
 )
 
 CREATE_ROOT = {
@@ -157,11 +156,6 @@ def table_exists(conn, table="history"):
         res = c.fetchone()
         return res[0]
 
-def archive_cluster(table="history", year=2011, month=12):
-    """Cluster an archive table"""
-    arname = FOREIGN_NAMES[table]
-    yield from do_cluster_operation(table=arname, year=year, month=month)
-
 
 def python_migrate_table_to_archive(src_conn, dst_conn, table="history", year=2011, month=12):
     """This uses python code and threads to transfer data between tables.
@@ -196,15 +190,11 @@ def python_migrate_table_to_archive(src_conn, dst_conn, table="history", year=20
 
     # FOR FUCKS SAKE SQL, WHY DO YOU MAKE MY LIFE PAINFUL?
 
-    # And of course, it turns out that even _if_ you order on insert, it
-    # doesn't _store_ things in order, so you need to cluster the table
-    # _anyhow_
-
     if not table_exists(conn=src_conn, table=src_table):
         return
     if not table_exists(conn=dst_conn, table=dst_table):
         return
-    src_query = f"COPY (SELECT * FROM {src_table} TO STDOUT;"
+    src_query = f"COPY (SELECT * FROM {src_table} ORDER BY itemid, clock) TO STDOUT;"
 
     log.info("Tables %s and %s exists, starting data transfer", src_table, dst_table)
 
@@ -328,12 +318,6 @@ def migrate_data(source_connstr, dest_connstr):
                 # tables.
                 with source.cursor() as curs:
                     for x in migrate_table_to_archive(table=table, year=date.year, month=date.month):
-                        execute(curs, x)
-
-                # And then we need to cluster the table on the archive side to
-                # get it in-order
-                with dest.cursor() as curs:
-                    for x in archive_cluster(table=table, year=date.year, month=date.month):
                         execute(curs, x)
 
 
