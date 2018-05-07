@@ -6,12 +6,14 @@ before_script:
     - uname -a
 
 test:
-    image: registry.gitlab.com/modioab/base-image:fedora-27-python-master
+    image: registry.gitlab.com/modioab/base-image:fedora-27-build-master
     stage: test
     when: always
     script:
         - pip3 install .[testing]
+        - pip3 install flake8
         - python3 setup.py test
+        - mypy .
         - python3 setup.py flake8
 
 container:

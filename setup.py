@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 from setuptools.command.test import test as TestCommand
 
 requires = [
-    'psycopg2-binary',
+    'psycopg2-binary >= 2.7.4'
 ]
 
 setup_requires = [
@@ -37,7 +37,7 @@ class PyTest(TestCommand):
 
 setup(
     name='housekeeper',
-    version='0.1',
+    version='0.2',
     description='A Zabbix housekeeper for Modio',
     long_description='',
     author='D.S. Ljungmark',
@@ -57,6 +57,7 @@ setup(
             'housekeeper = housekeeper.housekeeper:main',
             'retention = housekeeper.retention:main',
             'partition = housekeeper.partition:main',
+            'archiver = housekeeper.archiver:main',
         ]
     },
 )

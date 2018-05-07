@@ -7,22 +7,18 @@ import datetime
 from .helpers import (
     connstring,
     execute,
-    get_start_and_stop,
     get_constraint_name,
     get_index_name,
     get_table_name,
-    gen_current_and_future,
-    gen_year_past,
-    gen_last_month,
-    gen_next_month,
 )
 
-
-def gen_2014_to_2018():
-    day = datetime.date(year=2014, month=1, day=1)
-    while day.year < 2019:
-        yield day
-        day = gen_next_month(day)
+from .times import (
+    months_for_year_ahead,
+    months_for_year_past,
+    gen_last_month,
+    get_start_and_stop,
+    months_2014_to_current,
+)
 
 
 def clean_old_indexes(table="history", year=2011, month=12):
@@ -110,7 +106,7 @@ def cluster_table(table="history", year=2011, month=12):
 
     yield "BEGIN TRANSACTION;"
     yield from detach_partition(table=table, year=year, month=month)
-    yield f"CREATE TABLE IF NOT EXISTS {temp_table} PARTITION OF {table} FOR VALUES FROM ({start}) TO ({stop});"
+    yield f"CREATE TABLE IF NOT EXISTS {temp_table} PARTITION OF {table} for values from ({start}) to ({stop});"
     yield "COMMIT;"
 
     yield from ensure_btree_index(table=table, year=year, month=month)
@@ -124,7 +120,7 @@ def cluster_table(table="history", year=2011, month=12):
     yield "COMMIT;"
 
     yield "BEGIN TRANSACTION;"
-    yield f"INSERT INTO {tablename} SELECT * FROM {temp_table} ORDER BY itemid, clock;"
+    yield f"INSERT INTO {tablename} SELECT * from {temp_table} order by itemid,clock;"
     yield f"DROP TABLE {temp_table};"
     yield "COMMIT;"
 
@@ -179,7 +175,7 @@ def do_maintenance(connstr, cluster=False):
                 for x in create_statistics(table=table):
                     execute(curs, x)
 
-        for date in gen_current_and_future():
+        for date in months_for_year_ahead():
             for table in tables:
                 with c.cursor() as curs:
                     for x in create_table_partition(table=table, year=date.year, month=date.month):
@@ -193,7 +189,7 @@ def do_maintenance(connstr, cluster=False):
                     for x in clean_old_indexes(table=table, year=date.year, month=date.month):
                         execute(curs, x)
 
-        for n, date in enumerate(gen_year_past()):
+        for n, date in enumerate(months_for_year_past()):
             previous_month = (n == 0)
             for table in tables:
                 for x in clean_old_indexes(table=table, year=date.year, month=date.month):
@@ -223,7 +219,7 @@ def do_maintenance(connstr, cluster=False):
 
 def oneshot_maintenance():
     tables = ("history", "history_uint", "history_text", "history_str")
-    for date in gen_2014_to_2018():
+    for date in months_2014_to_current():
         for table in tables:
             yield from ensure_brin_index(table=table, year=date.year, month=date.month)
             yield from clean_old_indexes(table=table, year=date.year, month=date.month)
