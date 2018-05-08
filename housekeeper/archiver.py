@@ -420,6 +420,7 @@ def main():
         source_connstr = connstring()
         migrate_data(source_connstr=source_connstr,
                      dest_connstr=archive_connstr)
+    print("/* All operations succesful! */")
 
 
 if __name__ == '__main__':
