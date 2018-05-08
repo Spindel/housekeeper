@@ -159,17 +159,17 @@ def table_exists(conn, table="history"):
 
 
 def archive_cluster(table="history", year=2011, month=12):
-    """Cluster an archive table"""
+    """Cluster an archive table. Assumes the table exists"""
     arname = FOREIGN_NAMES[table]
+    yield from do_cluster_operation(table=arname, year=year, month=month)
 
-    tables = (get_table_name(table=arname, year=year, month=month), )
 
-    def query_iter():
-        yield from do_cluster_operation(table=arname, year=year, month=month)
-
-    yield "BEGIN TRANSACTION;"
-    yield from sql_if_tables_exist(tables=tables, query_iter=query_iter())
-    yield "COMMIT;"
+def should_archive_cluster(conn, table="history", year=2011, month=12):
+    """Cluster an archive table. Requires a connection to test if the table
+    exists"""
+    arname = FOREIGN_NAMES[table]
+    tablename = get_table_name(table=arname, year=year, month=month)
+    return table_exists(conn, table=tablename)
 
 
 def python_migrate_table_to_archive(src_conn, dst_conn, table="history", year=2011, month=12):
@@ -355,9 +355,10 @@ def oneshot_cluster(connstr):
         conn.autocommit = True  # Don't implicitly open a transaction
         for date in months_between(to_date=end):
             for table in tables:
-                with conn.cursor() as curs:
-                    for x in archive_cluster(table=table, year=date.year, month=date.month):
-                        execute(curs, x)
+                if should_archive_cluster(conn, table=table, year=date.year, month=date.month):
+                    with conn.cursor() as curs:
+                        for x in archive_cluster(table=table, year=date.year, month=date.month):
+                            execute(curs, x)
 
 
 def oneshot_archive(connstr):
