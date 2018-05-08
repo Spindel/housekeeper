@@ -162,7 +162,7 @@ def archive_cluster(table="history", year=2011, month=12):
     """Cluster an archive table"""
     arname = FOREIGN_NAMES[table]
 
-    tables = (arname, )
+    tables = (get_table_name(table=arname, year=year, month=month), )
 
     def query_iter():
         yield from do_cluster_operation(table=arname, year=year, month=month)
