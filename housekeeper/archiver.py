@@ -157,10 +157,19 @@ def table_exists(conn, table="history"):
         res = c.fetchone()
         return res[0]
 
+
 def archive_cluster(table="history", year=2011, month=12):
     """Cluster an archive table"""
     arname = FOREIGN_NAMES[table]
-    yield from do_cluster_operation(table=arname, year=year, month=month)
+
+    tables = (arname, )
+
+    def query_iter():
+        yield from do_cluster_operation(table=arname, year=year, month=month)
+
+    yield "BEGIN TRANSACTION;"
+    yield from sql_if_tables_exist(tables=tables, query_iter=query_iter())
+    yield "COMMIT;"
 
 
 def python_migrate_table_to_archive(src_conn, dst_conn, table="history", year=2011, month=12):
@@ -337,6 +346,20 @@ def migrate_data(source_connstr, dest_connstr):
                         execute(curs, x)
 
 
+def oneshot_cluster(connstr):
+    tables = ("history", "history_uint", "history_text", "history_str")
+    retention = get_retention()
+    end = get_month_before_retention(retention=retention)
+
+    with psycopg2.connect(connstr) as conn:
+        conn.autocommit = True  # Don't implicitly open a transaction
+        for date in months_between(to_date=end):
+            for table in tables:
+                with conn.cursor() as curs:
+                    for x in archive_cluster(table=table, year=date.year, month=date.month):
+                        execute(curs, x)
+
+
 def oneshot_archive(connstr):
     tables = ("history", "history_uint", "history_text", "history_str")
     retention = get_retention()
@@ -368,10 +391,11 @@ def main():
 
     if len(sys.argv) != 2:
         print(f"Usage: {sys.argv[0]} {{ COMMAND }}")
-        print("where COMMAND := { setup_archive | setup_migrate | oneshot_archive | cron }")
+        print("where COMMAND := { setup_archive | setup_migrate | oneshot_archive | oneshot_cluster | cron }")
         print()
         print("Setup commands are to be run first on either system.")
         print("oneshot_archive sets up the archive tables on the archive server")
+        print("oneshot_cluster:  Cluster all tables on the archive server")
         print("cron: Creates archive tables on the the archive db for the past"
               "year, and the year ahead.")
         print("Then it migrates all tables older than MODIO_ARCHIVE days from"
@@ -386,6 +410,9 @@ def main():
     elif command == "oneshot_archive":
         archive_connstr = archive_connstring()
         oneshot_archive(archive_connstr)
+    elif command == "oneshot_cluster":
+        archive_connstr = archive_connstring()
+        oneshot_cluster(archive_connstr)
     elif command == "cron":
         archive_connstr = archive_connstring()
         archive_maintenance(connstr=archive_connstr)

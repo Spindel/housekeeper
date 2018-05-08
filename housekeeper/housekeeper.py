@@ -114,7 +114,6 @@ def do_cluster_operation(table="history", year=2011, month=12):
 
 def cluster_table(table="history", year=2011, month=12):
     tablename = get_table_name(table=table, year=year, month=month)
-    indexname = get_index_name(table=table, year=year, month=month, kind="btree")
     start, stop = get_start_and_stop(year=year, month=month)
     temp_table = f"{tablename}_temp"
 
