@@ -22,6 +22,8 @@ from .helpers import (
     archive_connstring,
     connstring,
     execute,
+    sql_if_tables_exist,
+    table_exists,
 )
 
 from .housekeeper import (
@@ -136,25 +138,6 @@ def create_foreign_table(table="history", year=2011, month=12, remote="archive")
     yield dedent(f"""
         CREATE FOREIGN TABLE IF NOT EXISTS {tablename}
         PARTITION OF {table} FOR VALUES FROM ({start}) TO ({stop}) SERVER {remote};""")
-
-
-def sql_if_tables_exist(tables, query_iter):
-    count = len(tables)
-    tables_string = ", ".join("'{}'".format(t) for t in tables)
-    query_string = '\n'.join(x for x in query_iter)
-    yield dedent(f"""
-        DO $$ BEGIN
-        IF (SELECT COUNT(*)={count} FROM information_schema.tables WHERE table_name IN ({tables_string})) THEN
-        {query_string}
-        END IF; END $$;""")
-
-
-def table_exists(conn, table="history"):
-    select = f"select count(*)=1 from pg_tables where tablename='{table}';"
-    with conn.cursor() as c:
-        c.execute(select)
-        res = c.fetchone()
-        return res[0]
 
 
 def python_migrate_table_to_archive(src_conn, dst_conn, table="history", year=2011, month=12):
