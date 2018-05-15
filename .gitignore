@@ -6,3 +6,5 @@
 source.tar
 image.tar
 .eggs
+.mypy_cache/
+.pytest_cache/
