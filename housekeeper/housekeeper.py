@@ -224,6 +224,7 @@ def do_maintenance(connstr, cluster=False):
                         with c.cursor() as curs:
                             execute(curs, x)
 
+
 def oneshot_maintenance():
     tables = ("history", "history_uint", "history_text", "history_str")
     for date in months_2014_to_current():
