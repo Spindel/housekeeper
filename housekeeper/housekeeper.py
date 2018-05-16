@@ -10,6 +10,7 @@ from .helpers import (
     get_constraint_name,
     get_index_name,
     get_table_name,
+    table_exists,
 )
 
 from .times import (
@@ -161,6 +162,11 @@ def migrate_config_items():
     yield "COMMIT;"
 
 
+def should_maintain(conn, table="history", year=2112, month=12):
+    tbname = get_table_name(table=table, year=year, month=month)
+    return table_exists(conn, tbname)
+
+
 def do_maintenance(connstr, cluster=False):
     tables = ("history", "history_uint", "history_text", "history_str")
 
@@ -196,14 +202,16 @@ def do_maintenance(connstr, cluster=False):
                     with c.cursor() as curs:
                         execute(curs, x)
 
-                for x in clean_old_items(table=table, year=date.year, month=date.month):
-                    with c.cursor() as curs:
-                        execute(curs, x)
-
-                if not previous_month:
-                    for x in ensure_brin_index(table=table, year=date.year, month=date.month):
+                if should_maintain(conn=c, table=table, year=date.year, month=date.month):
+                    for x in clean_old_items(table=table, year=date.year, month=date.month):
                         with c.cursor() as curs:
                             execute(curs, x)
+
+                if not previous_month:
+                    if should_maintain(conn=c, table=table, year=date.year, month=date.month):
+                        for x in ensure_brin_index(table=table, year=date.year, month=date.month):
+                            with c.cursor() as curs:
+                                execute(curs, x)
 
                     for x in clean_btree_index(table=table, year=date.year, month=date.month):
                         with c.cursor() as curs:

@@ -1,10 +1,12 @@
 import os
+import time
+
+from textwrap import dedent
 
 from datetime import (
     timedelta,
     date,
 )
-import time
 
 
 DBCONFIG = "/etc/zabbix/zabbix.conf.d/database.conf"
@@ -87,3 +89,22 @@ def get_index_name(table="history", year=2011, month=12, kind="btree"):
 
 def get_constraint_name(table="history", year=2011, month=12):
     return f"{table}_y{year}m{month:02d}_check"
+
+
+def sql_if_tables_exist(tables, query_iter):
+    count = len(tables)
+    tables_string = ", ".join("'{}'".format(t) for t in tables)
+    query_string = '\n'.join(x for x in query_iter)
+    yield dedent(f"""
+        DO $$ BEGIN
+        IF (SELECT COUNT(*)={count} FROM information_schema.tables WHERE table_name IN ({tables_string})) THEN
+        {query_string}
+        END IF; END $$;""")
+
+
+def table_exists(conn, table="history"):
+    select = f"select count(*)=1 from pg_tables where tablename='{table}';"
+    with conn.cursor() as c:
+        c.execute(select)
+        res = c.fetchone()
+        return res[0]
