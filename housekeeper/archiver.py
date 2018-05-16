@@ -28,6 +28,7 @@ from .helpers import (
 
 from .housekeeper import (
     ensure_brin_index,
+    do_cluster_operation,
 )
 
 CREATE_ROOT = {
@@ -140,6 +141,20 @@ def create_foreign_table(table="history", year=2011, month=12, remote="archive")
         PARTITION OF {table} FOR VALUES FROM ({start}) TO ({stop}) SERVER {remote};""")
 
 
+def archive_cluster(table="history", year=2011, month=12):
+    """Cluster an archive table. Assumes the table exists"""
+    arname = FOREIGN_NAMES[table]
+    yield from do_cluster_operation(table=arname, year=year, month=month)
+
+
+def should_archive_cluster(conn, table="history", year=2011, month=12):
+    """Cluster an archive table. Requires a connection to test if the table
+    exists"""
+    arname = FOREIGN_NAMES[table]
+    tablename = get_table_name(table=arname, year=year, month=month)
+    return table_exists(conn, table=tablename)
+
+
 def python_migrate_table_to_archive(src_conn, dst_conn, table="history", year=2011, month=12):
     """This uses python code and threads to transfer data between tables.
     While the method is generic, there cannot be a transaction for COPY
@@ -173,11 +188,15 @@ def python_migrate_table_to_archive(src_conn, dst_conn, table="history", year=20
 
     # FOR FUCKS SAKE SQL, WHY DO YOU MAKE MY LIFE PAINFUL?
 
+    # And of course, it turns out that even _if_ you order on insert, it
+    # doesn't _store_ things in order, so you need to cluster the table
+    # _anyhow_
+
     if not table_exists(conn=src_conn, table=src_table):
         return
     if not table_exists(conn=dst_conn, table=dst_table):
         return
-    src_query = f"COPY (SELECT * FROM {src_table} ORDER BY itemid, clock) TO STDOUT;"
+    src_query = f"COPY (SELECT * FROM {src_table} TO STDOUT;"
 
     log.info("Tables %s and %s exists, starting data transfer", src_table, dst_table)
 
@@ -303,6 +322,27 @@ def migrate_data(source_connstr, dest_connstr):
                     for x in migrate_table_to_archive(table=table, year=date.year, month=date.month):
                         execute(curs, x)
 
+                # And then we need to cluster the table on the archive side to
+                # get it in-order
+                with dest.cursor() as curs:
+                    for x in archive_cluster(table=table, year=date.year, month=date.month):
+                        execute(curs, x)
+
+
+def oneshot_cluster(connstr):
+    tables = ("history", "history_uint", "history_text", "history_str")
+    retention = get_retention()
+    end = get_month_before_retention(retention=retention)
+
+    with psycopg2.connect(connstr) as conn:
+        conn.autocommit = True  # Don't implicitly open a transaction
+        for date in months_between(to_date=end):
+            for table in tables:
+                if should_archive_cluster(conn, table=table, year=date.year, month=date.month):
+                    with conn.cursor() as curs:
+                        for x in archive_cluster(table=table, year=date.year, month=date.month):
+                            execute(curs, x)
+
 
 def oneshot_archive(connstr):
     tables = ("history", "history_uint", "history_text", "history_str")
@@ -335,10 +375,11 @@ def main():
 
     if len(sys.argv) != 2:
         print(f"Usage: {sys.argv[0]} {{ COMMAND }}")
-        print("where COMMAND := { setup_archive | setup_migrate | oneshot_archive | cron }")
+        print("where COMMAND := { setup_archive | setup_migrate | oneshot_archive | oneshot_cluster | cron }")
         print()
         print("Setup commands are to be run first on either system.")
         print("oneshot_archive sets up the archive tables on the archive server")
+        print("oneshot_cluster:  Cluster all tables on the archive server")
         print("cron: Creates archive tables on the the archive db for the past"
               "year, and the year ahead.")
         print("Then it migrates all tables older than MODIO_ARCHIVE days from"
@@ -353,12 +394,16 @@ def main():
     elif command == "oneshot_archive":
         archive_connstr = archive_connstring()
         oneshot_archive(archive_connstr)
+    elif command == "oneshot_cluster":
+        archive_connstr = archive_connstring()
+        oneshot_cluster(archive_connstr)
     elif command == "cron":
         archive_connstr = archive_connstring()
         archive_maintenance(connstr=archive_connstr)
         source_connstr = connstring()
         migrate_data(source_connstr=source_connstr,
                      dest_connstr=archive_connstr)
+    print("/* All operations succesful! */")
 
 
 if __name__ == '__main__':

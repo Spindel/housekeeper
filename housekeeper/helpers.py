@@ -16,7 +16,7 @@ MONTHISH = timedelta(days=31)
 
 def execute(cursor, query):
     start = time.monotonic()
-    print(f"/* {query} /*")
+    print(f"/* {query} */")
     result = cursor.execute(query)
     end = time.monotonic()
     elapsed = end - start

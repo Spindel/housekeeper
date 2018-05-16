@@ -99,9 +99,22 @@ def attach_partition(table="history", year=2011, month=12):
     yield attach
 
 
-def cluster_table(table="history", year=2011, month=12):
+def do_cluster_operation(table="history", year=2011, month=12):
+    """Clusters a table by creating a btree_index on (itemid, clock) and then
+    clustering it (locking it exclusively), finally removing the unnecessary
+    index."""
     tablename = get_table_name(table=table, year=year, month=month)
     indexname = get_index_name(table=table, year=year, month=month, kind="btree")
+    start, stop = get_start_and_stop(year=year, month=month)
+
+    yield from ensure_btree_index(table=table, year=year, month=month)
+    yield f"CLUSTER {tablename} USING {indexname};"
+    yield from add_check_constraint(table=table, year=year, month=month)
+    yield from clean_btree_index(table=table, year=year, month=month)
+
+
+def cluster_table(table="history", year=2011, month=12):
+    tablename = get_table_name(table=table, year=year, month=month)
     start, stop = get_start_and_stop(year=year, month=month)
     temp_table = f"{tablename}_temp"
 
@@ -110,10 +123,7 @@ def cluster_table(table="history", year=2011, month=12):
     yield f"CREATE TABLE IF NOT EXISTS {temp_table} PARTITION OF {table} for values from ({start}) to ({stop});"
     yield "COMMIT;"
 
-    yield from ensure_btree_index(table=table, year=year, month=month)
-    yield f"CLUSTER {tablename} USING {indexname};"
-    yield from add_check_constraint(table=table, year=year, month=month)
-    yield from clean_btree_index(table=table, year=year, month=month)
+    yield from do_cluster_operation(table=table, year=year, month=month)
 
     yield "BEGIN TRANSACTION;"
     yield f"ALTER TABLE {table} DETACH PARTITION {temp_table};"
