@@ -106,7 +106,7 @@ def migrate_setup(username="example.com", password="0000-0000-0000-0000", host='
         CREATE EXTENSION IF NOT EXISTS postgres_fdw;
         CREATE SERVER IF NOT EXISTS archive
         FOREIGN DATA WRAPPER postgres_fdw
-            OPTIONS (host '{host}', port '{port}', dbname '{username}', sslmode '{sslmode}');
+            OPTIONS (host '{host}', port '{port}', dbname '{username}', sslmode '{sslmode}', fetch_size '10000');
         CREATE USER MAPPING IF NOT EXISTS FOR "{username}"
             SERVER archive
             OPTIONS (user '{username}', password '{password}');
