@@ -171,7 +171,6 @@ def python_migrate_table_to_archive(src_conn, dst_conn, table="history", year=20
     arname = FOREIGN_NAMES[table]
     src_table = get_table_name(table=table, year=year, month=month)
     dst_table = get_table_name(table=arname, year=year, month=month)
-    start, stop = get_start_and_stop(year=year, month=month)
 
     # option 1, create sorted temp table.
     # * How do I remove data from orig table once transfer is done?
@@ -247,11 +246,15 @@ def python_migrate_table_to_archive(src_conn, dst_conn, table="history", year=20
     with src_conn.cursor() as c:
         execute(c, f"TRUNCATE TABLE {src_table};")
 
+    # And then we need to cluster the table on the archive side to
+    # get it in-order
+    with dst_conn.cursor() as curs:
+        for x in archive_cluster(table=dst_table, year=year, month=month):
+            execute(curs, x)
+
 
 def swap_live_and_archive_tables(table="history", year=2011, month=12):
     original_tablename = get_table_name(table=table, year=year, month=month)
-
-    start, stop = get_start_and_stop(year=year, month=month)
 
     query_iter = itertools.chain(
         detach_partition(table=table, year=year, month=month),
@@ -280,7 +283,7 @@ def migrate_table_to_archive(table="history", year=2011, month=12):
     yield "COMMIT;"
 
 
-def archive_maintenance(connstr, cluster=False):
+def archive_maintenance(connstr):
     tables = ("history", "history_uint", "history_text", "history_str")
 
     with psycopg2.connect(connstr) as c:
@@ -320,12 +323,6 @@ def migrate_data(source_connstr, dest_connstr):
                 # tables.
                 with source.cursor() as curs:
                     for x in migrate_table_to_archive(table=table, year=date.year, month=date.month):
-                        execute(curs, x)
-
-                # And then we need to cluster the table on the archive side to
-                # get it in-order
-                with dest.cursor() as curs:
-                    for x in archive_cluster(table=table, year=date.year, month=date.month):
                         execute(curs, x)
 
 
