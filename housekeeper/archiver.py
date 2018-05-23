@@ -195,27 +195,35 @@ def python_migrate_table_to_archive(src_conn, dst_conn, table="history", year=20
         return
     if not table_exists(conn=dst_conn, table=dst_table):
         return
-    src_query = f"COPY (SELECT * FROM {src_table} TO STDOUT;"
+    src_query = f"COPY (SELECT * FROM {src_table}) TO STDOUT;"
 
     log.info("Tables %s and %s exists, starting data transfer", src_table, dst_table)
 
     # a pipe to read/write with, will be wrapped in file handles for the sake
     # of the API
     readEnd, writeEnd = os.pipe()
+    threadlog = log.getChild("copy_from")
+    copy_to_failed = copy_from_failed = True
 
     def copy_from():
         """Internal function for the thread"""
-
-        start = time.monotonic()
-        sql_file = os.fdopen(readEnd)
-        with dst_conn.cursor() as c:
-            # Copy has no return value, we cannot see how many rows were
-            # transferred
-            c.copy_from(sql_file, dst_table)
-        dst_conn.commit()
-        sql_file.close()
-        elapsed = time.monotonic() - start
-        log.info("Spent %ss writing to %s", elapsed, dst_table)
+        nonlocal copy_from_failed
+        try:
+            start = time.monotonic()
+            sql_file = os.fdopen(readEnd)
+            with dst_conn.cursor() as c:
+                # Copy has no return value, we cannot see how many rows were
+                # transferred
+                c.copy_from(sql_file, dst_table)
+            dst_conn.commit()
+            elapsed = time.monotonic() - start
+        except Exception:
+            threadlog.exception("Something is wrong in the state of denmark")
+        else:
+            copy_from_failed = False
+            threadlog.info("Spent %ss writing to %s", elapsed, dst_table)
+        finally:
+            sql_file.close()
 
     archive_side = threading.Thread(target=copy_from)
     archive_side.start()
@@ -227,12 +235,18 @@ def python_migrate_table_to_archive(src_conn, dst_conn, table="history", year=20
     # If the below fails (disk full, similar) we cannot terminate the
     # copy_from thread, and will thus leak a db connection until the program
     # terminates
-
-    with src_conn.cursor() as c:
-        c.copy_expert(src_query, sql_file)
-        sql_file.close()  # Important, otherwise you deadlock
-        elapsed = time.monotonic() - start
-        log.info("Spent %ss reading from %s", elapsed, src_table)
+    try:
+        with src_conn.cursor() as c:
+            c.copy_expert(src_query, sql_file)
+            sql_file.close()  # Important, otherwise you deadlock
+            elapsed = time.monotonic() - start
+            log.info("Spent %ss reading from %s", elapsed, src_table)
+    except Exception:
+        log.exception("Error reading from table")
+    else:
+        copy_to_failed = False
+    finally:
+        sql_file.close()
 
     # The read is done, the receiving thread may take longer time to work it
     # out. Wait for it.
@@ -242,6 +256,9 @@ def python_migrate_table_to_archive(src_conn, dst_conn, table="history", year=20
         log.error("Trouble receiving data for some reason. Not cleaning up")
         return
 
+    if copy_from_failed or copy_to_failed:
+        return
+
     # We now have a clean copy of the detached table. Time to empty it
     with src_conn.cursor() as c:
         execute(c, f"TRUNCATE TABLE {src_table};")
@@ -249,7 +266,7 @@ def python_migrate_table_to_archive(src_conn, dst_conn, table="history", year=20
     # And then we need to cluster the table on the archive side to
     # get it in-order
     with dst_conn.cursor() as curs:
-        for x in archive_cluster(table=dst_table, year=year, month=month):
+        for x in archive_cluster(table=table, year=year, month=month):
             execute(curs, x)
 
 
@@ -368,7 +385,8 @@ def oneshot_migrate():
 
 
 def main():
-    logging.basicConfig(level=logging.INFO, format='%(relativeCreated)6d %(threadName)s %(message)s')
+    logfmt = '/* %(relativeCreated)6d %(levelname)s:%(threadName)s:%(name)s> %(message)s */'
+    logging.basicConfig(level=logging.INFO, format=logfmt)
 
     if len(sys.argv) != 2:
         print(f"Usage: {sys.argv[0]} {{ COMMAND }}")
