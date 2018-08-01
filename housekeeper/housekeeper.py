@@ -55,6 +55,17 @@ def clean_old_items(table="history", year=2011, month=12):
     yield f"DELETE FROM {table} WHERE itemid NOT IN (select itemid FROM items);"
 
 
+def clean_duplicate_items(table="history", year=2011, month=12):
+    table = get_table_name(table=table, year=year, month=month)
+    yield f"""DELETE FROM {table} T1
+    USING {table} T2
+WHERE T1.ctid < T2.ctid
+    AND  T1.itemid  = T2.itemid
+    AND  T1.clock = T2.clock
+    AND  T1.value = T2.value
+    AND  T1.ns = T2.ns;"""
+
+
 def create_item_statistics():
     yield "CREATE STATISTICS IF NOT EXISTS s_items ON itemid, name, key_, hostid FROM items;"
 
@@ -214,6 +225,10 @@ def do_maintenance(connstr, cluster=False):
 
                 if should_maintain(conn=c, table=table, year=date.year, month=date.month):
                     for x in clean_old_items(table=table, year=date.year, month=date.month):
+                        with c.cursor() as curs:
+                            execute(curs, x)
+
+                    for x in clean_duplicate_items(table=table, year=date.year, month=date.month):
                         with c.cursor() as curs:
                             execute(curs, x)
 
