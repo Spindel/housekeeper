@@ -30,6 +30,8 @@ from .housekeeper import (
     ensure_brin_index,
     do_cluster_operation,
     clean_duplicate_items,
+    clean_old_items,
+    should_maintain,
 )
 
 CREATE_ROOT = {
@@ -334,6 +336,17 @@ def migrate_data(source_connstr, dest_connstr):
         dest.autocommit = True
         for date in months_between(to_date=end):
             for table in tables:
+                # Should_maintain checks that the table exists first
+                if should_maintain(conn=source, table=table, year=date.year, month=date.month):
+                    # First clean up old (deleted) items
+                    for x in clean_old_items(table=table, year=date.year, month=date.month):
+                        with source.cursor() as curs:
+                            execute(curs, x)
+                    # Then clean up duplicate data ( warning, slow)
+                    for x in clean_duplicate_items(table=table, year=date.year, month=date.month):
+                        with source.cursor() as curs:
+                            execute(curs, x)
+
                 with source.cursor() as curs:
                     for x in swap_live_and_archive_tables(table=table, year=date.year, month=date.month):
                         try:
