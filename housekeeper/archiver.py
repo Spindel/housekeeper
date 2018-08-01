@@ -159,6 +159,7 @@ def should_archive_cluster(conn, table="history", year=2011, month=12):
     exists"""
     arname = FOREIGN_NAMES[table]
     tablename = get_table_name(table=arname, year=year, month=month)
+    print(f"/* {tablename} */")
     return table_exists(conn, table=tablename)
 
 
@@ -374,6 +375,7 @@ def oneshot_dedupe(connstr):
         conn.autocommit = True  # Don't implicitly open a transaction
         for date in months_between(to_date=end):
             for table in tables:
+                print(f"/* {table} */")
                 if should_archive_cluster(conn, table=table, year=date.year, month=date.month):
                     with conn.cursor() as curs:
                         for x in archive_dedupe(table=table, year=date.year, month=date.month):
