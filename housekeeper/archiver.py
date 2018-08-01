@@ -29,6 +29,7 @@ from .helpers import (
 from .housekeeper import (
     ensure_brin_index,
     do_cluster_operation,
+    clean_duplicate_items,
 )
 
 CREATE_ROOT = {
@@ -145,6 +146,12 @@ def archive_cluster(table="history", year=2011, month=12):
     """Cluster an archive table. Assumes the table exists"""
     arname = FOREIGN_NAMES[table]
     yield from do_cluster_operation(table=arname, year=year, month=month)
+
+
+def archive_dedupe(table="history", year=2011, month=12):
+    """Cluster an archive table. Assumes the table exists"""
+    arname = FOREIGN_NAMES[table]
+    yield from clean_duplicate_items(table=arname, year=year, month=month)
 
 
 def should_archive_cluster(conn, table="history", year=2011, month=12):
@@ -358,6 +365,21 @@ def oneshot_cluster(connstr):
                             execute(curs, x)
 
 
+def oneshot_dedupe(connstr):
+    tables = ("history", "history_uint", "history_text", "history_str")
+    retention = get_retention()
+    end = get_month_before_retention(retention=retention)
+
+    with psycopg2.connect(connstr) as conn:
+        conn.autocommit = True  # Don't implicitly open a transaction
+        for date in months_between(to_date=end):
+            for table in tables:
+                if should_archive_cluster(conn, table=table, year=date.year, month=date.month):
+                    with conn.cursor() as curs:
+                        for x in archive_dedupe(table=table, year=date.year, month=date.month):
+                            execute(curs, x)
+
+
 def oneshot_archive(connstr):
     tables = ("history", "history_uint", "history_text", "history_str")
     retention = get_retention()
@@ -390,7 +412,7 @@ def main():
 
     if len(sys.argv) != 2:
         print(f"Usage: {sys.argv[0]} {{ COMMAND }}")
-        print("where COMMAND := { setup_archive | setup_migrate | oneshot_archive | oneshot_cluster | cron }")
+        print("where COMMAND := { setup_archive | setup_migrate | oneshot_archive | oneshot_cluster | cron | dedupe }")
         print()
         print("Setup commands are to be run first on either system.")
         print("oneshot_archive sets up the archive tables on the archive server")
@@ -399,6 +421,7 @@ def main():
               "year, and the year ahead.")
         print("Then it migrates all tables older than MODIO_ARCHIVE days from"
               "the source to the archive db, finally cleaning out the old tables")
+        print("dedupe: Iterates over all tables, removing duplicated rows.")
         sys.exit(1)
     command = sys.argv[1]
 
@@ -412,6 +435,9 @@ def main():
     elif command == "oneshot_cluster":
         archive_connstr = archive_connstring()
         oneshot_cluster(archive_connstr)
+    elif command == "dedupe":
+        archive_connstr = archive_connstring()
+        oneshot_dedupe(archive_connstr)
     elif command == "cron":
         archive_connstr = archive_connstring()
         archive_maintenance(connstr=archive_connstr)
