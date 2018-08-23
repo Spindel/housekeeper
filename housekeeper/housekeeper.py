@@ -216,10 +216,9 @@ def do_maintenance(connstr, cluster=False):
                     with c.cursor() as curs:
                         execute(curs, x)
 
-                if should_maintain(c, table=table, year=date.year, month=date.month):
-                    for x in ensure_brin_index(table=table, year=date.year, month=date.month):
-                        with c.cursor() as curs:
-                            execute(curs, x)
+                for x in ensure_brin_index(table=table, year=date.year, month=date.month):
+                    with c.cursor() as curs:
+                        execute(curs, x)
 
         for n, date in enumerate(months_for_year_past()):
             previous_month = (n == 0)
@@ -228,9 +227,10 @@ def do_maintenance(connstr, cluster=False):
                     with c.cursor() as curs:
                         execute(curs, x)
 
-                for x in ensure_brin_index(table=table, year=date.year, month=date.month):
-                    with c.cursor() as curs:
-                        execute(curs, x)
+                if should_maintain(c, table=table, year=date.year, month=date.month):
+                    for x in ensure_brin_index(table=table, year=date.year, month=date.month):
+                        with c.cursor() as curs:
+                            execute(curs, x)
 
                 if not previous_month:
                     for x in clean_btree_index(table=table, year=date.year, month=date.month):
