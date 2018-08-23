@@ -204,16 +204,20 @@ def do_maintenance(connstr, cluster=False):
 
         for date in months_for_year_ahead():
             for table in tables:
-                with c.cursor() as curs:
-                    for x in create_table_partition(table=table, year=date.year, month=date.month):
+                for x in create_table_partition(table=table, year=date.year, month=date.month):
+                    with c.cursor() as curs:
                         execute(curs, x)
 
-                with c.cursor() as curs:
-                    for x in ensure_btree_index(table=table, year=date.year, month=date.month):
+                for x in ensure_btree_index(table=table, year=date.year, month=date.month):
+                    with c.cursor() as curs:
                         execute(curs, x)
 
-                with c.cursor() as curs:
-                    for x in clean_old_indexes(table=table, year=date.year, month=date.month):
+                for x in clean_old_indexes(table=table, year=date.year, month=date.month):
+                    with c.cursor() as curs:
+                        execute(curs, x)
+
+                for x in ensure_brin_index(table=table, year=date.year, month=date.month):
+                    with c.cursor() as curs:
                         execute(curs, x)
 
         for n, date in enumerate(months_for_year_past()):
@@ -223,12 +227,11 @@ def do_maintenance(connstr, cluster=False):
                     with c.cursor() as curs:
                         execute(curs, x)
 
-                if not previous_month:
-                    if should_maintain(conn=c, table=table, year=date.year, month=date.month):
-                        for x in ensure_brin_index(table=table, year=date.year, month=date.month):
-                            with c.cursor() as curs:
-                                execute(curs, x)
+                for x in ensure_brin_index(table=table, year=date.year, month=date.month):
+                    with c.cursor() as curs:
+                        execute(curs, x)
 
+                if not previous_month:
                     for x in clean_btree_index(table=table, year=date.year, month=date.month):
                         with c.cursor() as curs:
                             execute(curs, x)
