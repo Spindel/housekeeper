@@ -32,6 +32,7 @@ from .housekeeper import (
     clean_duplicate_items,
     clean_old_items,
     should_maintain,
+    sql_prelude,
 )
 
 CREATE_ROOT = {
@@ -314,6 +315,10 @@ def archive_maintenance(connstr):
 
     with psycopg2.connect(connstr) as c:
         c.autocommit = True  # Don't implicitly open a transaction
+        with c.cursor() as curs:
+            for statement in sql_prelude():
+                execute(curs, statement)
+
         for table in tables:
             for date in months_for_year_ahead():
                 with c.cursor() as curs:
@@ -334,6 +339,12 @@ def migrate_data(source_connstr, dest_connstr):
     with psycopg2.connect(source_connstr) as source, psycopg2.connect(dest_connstr) as dest:
         source.autocommit = True  # Don't implicitly open a transaction
         dest.autocommit = True
+
+        for conn in (source, dest):
+            with conn.cursor() as curs:
+                for statement in sql_prelude():
+                    execute(curs, statement)
+
         for date in months_between(to_date=end):
             for table in tables:
                 # Should_maintain checks that the table exists first

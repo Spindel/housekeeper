@@ -188,11 +188,18 @@ def should_maintain(conn, table="history", year=2112, month=12):
     return table_exists(conn, tbname)
 
 
+def sql_prelude():
+    yield "SET WORK_MEM='1GB';"
+
+
 def do_maintenance(connstr, cluster=False):
     tables = ("history", "history_uint", "history_text", "history_str")
 
     with psycopg2.connect(connstr) as c:
         c.autocommit = True  # Don't implicitly open a transaction
+        with c.cursor() as curs:
+            for statement in sql_prelude():
+                execute(curs, statement)
 
         # Create statistics ( let the auto-analyze function analyze later)
         with c.cursor() as curs:
