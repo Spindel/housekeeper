@@ -30,7 +30,7 @@ def next_month(day: date) -> date:
     return (day.replace(day=15) + MONTHISH).replace(day=1)
 
 
-def get_start_and_stop(*, year: int=2011, month: int=11) -> Tuple[int, int]:
+def get_start_and_stop(*, year: int = 2011, month: int = 11) -> Tuple[int, int]:
     start = date(year=year, month=month, day=1)
     stop = next_month(start)
     return timestamp(start), timestamp(stop)
@@ -47,8 +47,8 @@ def gen_next_month() -> Iterator[date]:
 
 
 def gen_monthdeltas(*,
-                    from_date: Optional[date]=None,
-                    step: Callable[[date], date]=next_month) -> Iterator[date]:
+                    from_date: Optional[date] = None,
+                    step: Callable[[date], date] = next_month) -> Iterator[date]:
     if from_date is None:
         from_date = datetime.utcnow().date()
 
@@ -70,7 +70,7 @@ def gen_quarters(start: date) -> Iterator[date]:
         yield start
 
 
-def months_for_year_ahead(start: Optional[date]=None) -> Iterator[date]:
+def months_for_year_ahead(start: Optional[date] = None) -> Iterator[date]:
     if start is None:
         start = this_day()
     months = gen_monthdeltas(from_date=start, step=next_month)
@@ -78,7 +78,7 @@ def months_for_year_ahead(start: Optional[date]=None) -> Iterator[date]:
         yield next(months)
 
 
-def months_for_year_past(start: Optional[date]=None) -> Iterator[date]:
+def months_for_year_past(start: Optional[date] = None) -> Iterator[date]:
     if start is None:
         start = this_day()
     months = gen_monthdeltas(from_date=start, step=prev_month)
@@ -95,8 +95,8 @@ def deduct_days(start: date, retention: int) -> date:
     return datetime.utcfromtimestamp(start_ts).date()
 
 
-def get_month_before_retention(start: Optional[date]=None,
-                               retention: int=0) -> date:
+def get_month_before_retention(start: Optional[date] = None,
+                               retention: int = 0) -> date:
     assert retention > 0
     if start is None:
         start = datetime.utcnow().date()
@@ -105,7 +105,7 @@ def get_month_before_retention(start: Optional[date]=None,
     return prev_month(beginning)
 
 
-def months_between(*, from_date: Optional[date]=None, to_date: date) -> Iterator[date]:
+def months_between(*, from_date: Optional[date] = None, to_date: date) -> Iterator[date]:
     if from_date is None:
         from_date = date(year=2014, month=1, day=1)
     months = gen_monthdeltas(from_date=from_date)

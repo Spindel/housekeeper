@@ -151,7 +151,7 @@ def cluster_table(table="history", year=2011, month=12):
 
 def migrate_table(server, table="history", year=2011, month=12):
     """Code to migrate a table to a remote server."""
-    raise NotImplemented("Not implemented yet")
+    raise NotImplementedError("Not implemented yet")
     tablename = get_table_name(table=table, year=year, month=month)
     temp_table = f"{tablename}_temp"
     start, stop = get_start_and_stop(year=year, month=month)
