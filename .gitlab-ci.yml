@@ -1,3 +1,4 @@
+image: registry.gitlab.com/modioab/base-image/fedora-29/build:master
 stages:
     - test
     - publish
@@ -6,7 +7,6 @@ before_script:
     - uname -a
 
 test:
-    image: registry.gitlab.com/modioab/base-image:fedora-27-build-master
     stage: test
     when: always
     script:
@@ -17,7 +17,6 @@ test:
         - python3 setup.py flake8
 
 container:
-    image: registry.gitlab.com/modioab/base-image:fedora-27-build-master
     stage: publish
     tags:
         - docker
