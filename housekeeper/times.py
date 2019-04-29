@@ -1,14 +1,5 @@
-from datetime import (
-    datetime,
-    timedelta,
-    date,
-)
-from typing import (
-    Iterator,
-    Optional,
-    Callable,
-    Tuple,
-)
+from datetime import datetime, timedelta, date
+from typing import Iterator, Optional, Callable, Tuple
 
 EPOCH = date(1970, 1, 1)
 MONTHISH = timedelta(days=31)
@@ -46,9 +37,9 @@ def gen_next_month() -> Iterator[date]:
     yield next_month(start_date)
 
 
-def gen_monthdeltas(*,
-                    from_date: Optional[date] = None,
-                    step: Callable[[date], date] = next_month) -> Iterator[date]:
+def gen_monthdeltas(
+    *, from_date: Optional[date] = None, step: Callable[[date], date] = next_month
+) -> Iterator[date]:
     if from_date is None:
         from_date = datetime.utcnow().date()
 
@@ -95,8 +86,9 @@ def deduct_days(start: date, retention: int) -> date:
     return datetime.utcfromtimestamp(start_ts).date()
 
 
-def get_month_before_retention(start: Optional[date] = None,
-                               retention: int = 0) -> date:
+def get_month_before_retention(
+    start: Optional[date] = None, retention: int = 0
+) -> date:
     assert retention > 0
     if start is None:
         start = datetime.utcnow().date()
@@ -105,7 +97,9 @@ def get_month_before_retention(start: Optional[date] = None,
     return prev_month(beginning)
 
 
-def months_between(*, from_date: Optional[date] = None, to_date: date) -> Iterator[date]:
+def months_between(
+    *, from_date: Optional[date] = None, to_date: date
+) -> Iterator[date]:
     if from_date is None:
         from_date = date(year=2014, month=1, day=1)
     months = gen_monthdeltas(from_date=from_date)

@@ -459,7 +459,7 @@ def main():
     elif command == "oneshot_cluster":
         archive_connstr = archive_connstring()
         oneshot_cluster(archive_connstr)
-    elif command == "dedube":
+    elif command == "dedupe":
         archive_connstr = archive_connstring()
         oneshot_dedupe(archive_connstr)
     elif command == "cron":

@@ -24,9 +24,11 @@ from .times import (
 
 def clean_old_indexes(table="history", year=2011, month=12):
     tablename = get_table_name(table=table, year=year, month=month)
-    oldindexes = [f"{tablename}_itemid_clock_idx",
-                  f"{tablename}_itemid_clock_idx1",
-                  f"{tablename}_itemid_clock_idx2"]
+    oldindexes = [
+        f"{tablename}_itemid_clock_idx",
+        f"{tablename}_itemid_clock_idx1",
+        f"{tablename}_itemid_clock_idx2",
+    ]
     cleanup = "DROP INDEX IF EXISTS {};"
     for oldindex in oldindexes:
         yield cleanup.format(oldindex)
@@ -41,8 +43,10 @@ def ensure_btree_index(table="history", year=2011, month=12):
 def ensure_brin_index(table="history", year=2011, month=12):
     index = get_index_name(table=table, year=year, month=month, kind="brin")
     table = get_table_name(table=table, year=year, month=month)
-    yield (f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {index} on {table} "
-           f"USING brin (itemid, clock) WITH (pages_per_range='16');")
+    yield (
+        f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {index} on {table} "
+        f"USING brin (itemid, clock) WITH (pages_per_range='16');"
+    )
 
 
 def clean_btree_index(table="history", year=2011, month=12):
@@ -57,13 +61,23 @@ def clean_old_items(table="history", year=2011, month=12):
 
 def clean_duplicate_items(table="history", year=2011, month=12):
     table = get_table_name(table=table, year=year, month=month)
-    yield f"""DELETE FROM {table} T1
-    USING {table} T2
-WHERE T1.ctid < T2.ctid
-    AND  T1.itemid  = T2.itemid
-    AND  T1.clock = T2.clock
-    AND  T1.value = T2.value
-    AND  T1.ns = T2.ns;"""
+    start_time, end_time = get_start_and_stop(year=year, month=month)
+    STEP = 10000
+    start = start_time
+    stop = start + STEP
+
+    while stop <= end_time:
+        yield f"""DELETE FROM {table} T1
+        USING {table} T2
+    WHERE T1.ctid < T2.ctid
+        AND  T1.clock BETWEEN {start} AND {stop}
+        AND  T2.clock BETWEEN {start} AND {stop}
+        AND  T1.itemid = T2.itemid
+        AND  T1.clock = T2.clock
+        AND  T1.value = T2.value
+        AND  T1.ns = T2.ns;"""
+        start = stop
+        stop = start + STEP
 
 
 def create_item_statistics():
@@ -97,8 +111,10 @@ def add_check_constraint(table="history", year=2011, month=12):
     tablename = get_table_name(table=table, year=year, month=month)
     constraint_name = get_constraint_name(table=table, year=year, month=month)
     start, stop = get_start_and_stop(year=year, month=month)
-    constraint = (f"ALTER TABLE {tablename} ADD CONSTRAINT {constraint_name} "
-                  f"CHECK (clock >= {start} AND clock < {stop});")
+    constraint = (
+        f"ALTER TABLE {tablename} ADD CONSTRAINT {constraint_name} "
+        f"CHECK (clock >= {start} AND clock < {stop});"
+    )
     yield from drop_check_constraint(table=table, year=year, month=month)
     yield constraint
 
@@ -151,16 +167,19 @@ def cluster_table(table="history", year=2011, month=12):
 
 def migrate_config_items():
     yield "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;"
-    yield ("INSERT INTO history_text (id, ns, itemid, clock, value) "
-           "  SELECT 0, 0, itemid, clock, value FROM history_str WHERE itemid IN "
-           " (SELECT itemid FROM items WHERE name LIKE 'mytemp.internal.conf%' AND value_type=1);")
+    yield (
+        "INSERT INTO history_text (id, ns, itemid, clock, value) "
+        "  SELECT 0, 0, itemid, clock, value FROM history_str WHERE itemid IN "
+        " (SELECT itemid FROM items WHERE name LIKE 'mytemp.internal.conf%' AND value_type=1);"
+    )
 
     yield "UPDATE items SET value_type=4 WHERE name LIKE 'mytemp.internal.conf%';"
     yield "DELETE FROM items WHERE name LIKE 'mytemp.internal.change%';"
-    yield ("DELETE FROM history_str WHERE itemid IN "
-           "  ( SELECT itemid FROM items "
-           "     WHERE name LIKE 'mytemp.internal.conf%' AND value_type=4);"
-           )
+    yield (
+        "DELETE FROM history_str WHERE itemid IN "
+        "  ( SELECT itemid FROM items "
+        "     WHERE name LIKE 'mytemp.internal.conf%' AND value_type=4);"
+    )
     yield "COMMIT;"
 
 
@@ -200,43 +219,59 @@ def do_maintenance(connstr, cluster=False):
 
         for date in months_for_year_ahead():
             for table in tables:
-                for x in create_table_partition(table=table, year=date.year, month=date.month):
+                for x in create_table_partition(
+                    table=table, year=date.year, month=date.month
+                ):
                     with c.cursor() as curs:
                         execute(curs, x)
 
-                for x in ensure_btree_index(table=table, year=date.year, month=date.month):
+                for x in ensure_btree_index(
+                    table=table, year=date.year, month=date.month
+                ):
                     with c.cursor() as curs:
                         execute(curs, x)
 
-                for x in clean_old_indexes(table=table, year=date.year, month=date.month):
+                for x in clean_old_indexes(
+                    table=table, year=date.year, month=date.month
+                ):
                     with c.cursor() as curs:
                         execute(curs, x)
 
-                for x in ensure_brin_index(table=table, year=date.year, month=date.month):
+                for x in ensure_brin_index(
+                    table=table, year=date.year, month=date.month
+                ):
                     with c.cursor() as curs:
                         execute(curs, x)
 
         for n, date in enumerate(months_for_year_past()):
-            previous_month = (n == 0)
+            previous_month = n == 0
             for table in tables:
-                for x in clean_old_indexes(table=table, year=date.year, month=date.month):
+                for x in clean_old_indexes(
+                    table=table, year=date.year, month=date.month
+                ):
                     with c.cursor() as curs:
                         execute(curs, x)
 
                 if should_maintain(c, table=table, year=date.year, month=date.month):
-                    for x in ensure_brin_index(table=table, year=date.year, month=date.month):
+                    for x in ensure_brin_index(
+                        table=table, year=date.year, month=date.month
+                    ):
                         with c.cursor() as curs:
                             execute(curs, x)
 
                 if not previous_month:
-                    for x in clean_btree_index(table=table, year=date.year, month=date.month):
+                    for x in clean_btree_index(
+                        table=table, year=date.year, month=date.month
+                    ):
                         with c.cursor() as curs:
                             execute(curs, x)
 
         if cluster:
             for date in gen_last_month():
                 for table in tables:
-                    for x in cluster_table(table=table, year=date.year, month=date.month):
+                    for x in cluster_table(
+                        table=table, year=date.year, month=date.month
+                    ):
                         with c.cursor() as curs:
                             execute(curs, x)
 
@@ -309,5 +344,5 @@ def main():
         do_oneshot_maintenance(connstr=connstr)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
