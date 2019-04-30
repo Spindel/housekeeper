@@ -59,7 +59,7 @@ def clean_old_items(table="history", year=2011, month=12):
     yield f"DELETE FROM {table} WHERE itemid NOT IN (select itemid FROM items);"
 
 
-def clean_duplicate_items(table="history", year=2011, month=12, count_seconds=50000):
+def clean_duplicate_items(table="history", year=2011, month=12, count_seconds=33613):
     """In small batches, delete duplicated rows from history tables.
     The time logic is a bit hairy, and the DELETE SQL is worse than that.
 
