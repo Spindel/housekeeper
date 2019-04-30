@@ -59,25 +59,41 @@ def clean_old_items(table="history", year=2011, month=12):
     yield f"DELETE FROM {table} WHERE itemid NOT IN (select itemid FROM items);"
 
 
-def clean_duplicate_items(table="history", year=2011, month=12):
+def clean_duplicate_items(table="history", year=2011, month=12, count_seconds=50000):
+    """In small batches, delete duplicated rows from history tables.
+    The time logic is a bit hairy, and the DELETE SQL is worse than that.
+
+    Group by all itemid, clock, value, ns (in a sub-select) to get all
+    duplicate rows, then use ctid to ensure uniqueness.
+    
+    We don't parse the entire month at once, but in minor batches to make life
+    better for the database and cut down on amount of temp/sort space needed.
+    """
+
     table = get_table_name(table=table, year=year, month=month)
     start_time, end_time = get_start_and_stop(year=year, month=month)
-    STEP = 10000
     start = start_time
-    stop = start + STEP
+    stop = start + count_seconds
 
     while stop <= end_time:
-        yield f"""DELETE FROM {table} T1
-        USING {table} T2
-    WHERE T1.ctid < T2.ctid
-        AND  T1.clock BETWEEN {start} AND {stop}
-        AND  T2.clock BETWEEN {start} AND {stop}
-        AND  T1.itemid = T2.itemid
-        AND  T1.clock = T2.clock
-        AND  T1.value = T2.value
-        AND  T1.ns = T2.ns;"""
+        yield f"""DELETE
+FROM {table} T1
+USING (
+      SELECT MIN(ctid) as ctid,
+             {table}.*
+      FROM   {table}
+      GROUP BY ({table}.itemid, {table}.clock, {table}.value, {table}.ns)
+      HAVING COUNT(*) > 1 ) T2
+WHERE T1.ctid <> T2.ctid
+AND  T1.clock BETWEEN {start} AND {stop}
+AND  T2.clock BETWEEN {start} AND {stop}
+AND  T1.itemid = T2.itemid
+AND  T1.clock = T2.clock
+AND  T1.value = T2.value
+AND  T1.ns = T2.ns;"""
+
         start = stop
-        stop = start + STEP
+        stop = start + count_seconds
 
 
 def create_item_statistics():
@@ -269,6 +285,13 @@ def do_maintenance(connstr, cluster=False):
         if cluster:
             for date in gen_last_month():
                 for table in tables:
+                    # Remove duplicated rows from tables before we cluster them
+                    for x in clean_duplicate_items(
+                        table=table, year=date.year, month=date.month
+                    ):
+                        with c.cursor() as curs:
+                            execute(curs, x)
+
                     for x in cluster_table(
                         table=table, year=date.year, month=date.month
                     ):
