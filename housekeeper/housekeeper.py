@@ -65,7 +65,7 @@ def clean_duplicate_items(table="history", year=2011, month=12, count_seconds=50
 
     Group by all itemid, clock, value, ns (in a sub-select) to get all
     duplicate rows, then use ctid to ensure uniqueness.
-    
+
     We don't parse the entire month at once, but in minor batches to make life
     better for the database and cut down on amount of temp/sort space needed.
     """
