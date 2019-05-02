@@ -59,6 +59,12 @@ def clean_old_items(table="history", year=2011, month=12):
     yield f"DELETE FROM {table} WHERE itemid NOT IN (select itemid FROM items);"
 
 
+def vacuum_table(table="history", year=2011, month=12):
+    """Vacuums the table. Because you asked for it"""
+    table = get_table_name(table=table, year=year, month=month)
+    yield f"VACUUM ANALYZE {table};"
+
+
 def clean_duplicate_items(table="history", year=2011, month=12, count_seconds=33613):
     """In small batches, delete duplicated rows from history tables.
     The time logic is a bit hairy, and the DELETE SQL is worse than that.
@@ -70,19 +76,36 @@ def clean_duplicate_items(table="history", year=2011, month=12, count_seconds=33
     better for the database and cut down on amount of temp/sort space needed.
     """
 
-    table = get_table_name(table=table, year=year, month=month)
+    partition = get_table_name(table=table, year=year, month=month)
     start_time, end_time = get_start_and_stop(year=year, month=month)
     start = start_time
     stop = start + count_seconds
+    count = 0
 
     while stop <= end_time:
+        # This operation may cause a LOT of churn and is helped by a
+        # functional vacuum.
+
+        # Because we batch on smaller groups, to consume less memory, it's
+        # important that we sometimes have working statistics, otherwise a
+        # delete query towards the end of a month will have enough churn in the
+        # blocks to cause DELETE queries to block for several days.
+        # 11 is a fun palindrome and prime.
+        if count % 11 == 0:
+            yield from vacuum_table(table=table, year=year, month=month)
+
         yield f"""DELETE
-FROM {table} T1
+FROM {partition} T1
 USING (
       SELECT MIN(ctid) as ctid,
-             {table}.*
-      FROM   {table}
-      GROUP BY ({table}.itemid, {table}.clock, {table}.value, {table}.ns)
+             {partition}.*
+      FROM   {partition}
+      GROUP BY (
+             {partition}.itemid,
+             {partition}.clock,
+             {partition}.value,
+             {partition}.ns
+      )
       HAVING COUNT(*) > 1 ) T2
 WHERE T1.ctid <> T2.ctid
 AND  T1.clock BETWEEN {start} AND {stop}
@@ -94,6 +117,10 @@ AND  T1.ns = T2.ns;"""
 
         start = stop
         stop = start + count_seconds
+        count += 1
+
+    # Always vacuum before we leave, as we may have caused churn on the table
+    yield from vacuum_table(table=table, year=year, month=month)
 
 
 def create_item_statistics():
