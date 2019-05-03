@@ -23,6 +23,7 @@ from .times import (
 
 FAST_WINDOW = 14
 
+
 def clean_old_indexes(table="history", year=2011, month=12):
     tablename = get_table_name(table=table, year=year, month=month)
     oldindexes = [
@@ -329,7 +330,12 @@ def do_maintenance(connstr, cluster=False):
             for date in gen_last_month():
                 for table in tables:
                     # Clean out expired items before we remove duplicates
-                    for x in clean_expired_items(table=table, year=date.year, month=date.month, retention=FAST_WINDOW):
+                    for x in clean_expired_items(
+                        table=table,
+                        year=date.year,
+                        month=date.month,
+                        retention=FAST_WINDOW,
+                    ):
                         with c.cursor() as curs:
                             execute(curs, x)
                     # Remove duplicated rows from tables before we cluster them
@@ -359,14 +365,18 @@ def maintain_last_year():
     tables = ("history", "history_uint", "history_text", "history_str")
     for date in months_for_year_past():
         for table in tables:
-            yield from oneshot_maintenance_operation(table=table, year=date.year, month=date.month)
+            yield from oneshot_maintenance_operation(
+                table=table, year=date.year, month=date.month
+            )
 
 
 def oneshot_maintenance():
     tables = ("history", "history_uint", "history_text", "history_str")
     for date in months_2014_to_current():
         for table in tables:
-            yield from oneshot_maintenance_operation(table=table, year=date.year, month=date.month)
+            yield from oneshot_maintenance_operation(
+                table=table, year=date.year, month=date.month
+            )
 
 
 def do_oneshot_maintenance(connstr):
@@ -395,7 +405,9 @@ def do_oneshot_maintenance(connstr):
         for date in months_2014_to_current():
             for table in tables:
                 if should_maintain(c, table=table, year=date.year, month=date.month):
-                    for x in oneshot_maintenance_operation(table=table, year=date.year, month=date.month):
+                    for x in oneshot_maintenance_operation(
+                        table=table, year=date.year, month=date.month
+                    ):
                         with c.cursor() as curs:
                             execute(curs, x)
 
@@ -412,11 +424,14 @@ def main():
         print(f"Usage: {sys.argv[0]} {{ COMMAND }}")
         print("where COMMAND := { cluster | oneshot | cluster_all }")
         print("")
-        print("oneshot: Sets up indexes, cleans out items, and clusters all tables from 2014 and onwards. ")
-        print("         Extremely heavy operation. ")
-        print("cluster: Clusters last month, run in case you missed the cron job the 14th.")
-        print("cron: Ensures indexes exist, table partitions exists for the")
-        print("      future, and will cluster last month if the date is the 14th")
+        print(
+            """
+oneshot: Sets up indexes, cleans out items, and clusters all tables from 2014 and onwards.
+         Extremely heavy operation.
+cluster: Clusters last month, run in case you missed the cron job the 14th."
+cron:    Ensures indexes exist, table partitions exists for the")
+         future, and will cluster last month if the date is the 14th"""
+        )
         print("-")
         print("No arguments: run in cron mode")
         sys.exit(1)
