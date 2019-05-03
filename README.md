@@ -17,6 +17,38 @@ Takes a configuration variable for how long (in days) to keep data, via the
 environment.  It will remove partitions older than that.
 
 
+## Deletion
+
+Maintenance executes in practice at two times (but is scheduled for every day):
+- the 14th of a month
+- When archiving data
+
+expiration is handled at both these times, with different retention times:
+Items with a retention time (`item.history  < retention`) less than the current
+retention are selected for expiration, and data points that are older than
+`retention` days old at this time are deleted.
+
+This makes it that we right now only care for three kinds of values of item.history:
+- Below 14 days  (Cleaned the 14th every month)
+- Below MODIO_ARCHIVE days (cleaned when data is migrated)
+- Above MODIO_ARCHIVE days (never expired)
+
+Archiving is defined as migrating the months that are _older_ than the
+MODIO_ARCHIVE retention period. This makes every value in the migrated data set
+older than MODIO_ARCHIVE days.
+
+At this point, since we're already touching all parts of the table, we'll
+run an expiry of old data (items with a history defined as smaller than
+retention period), and will delete all posts for those items that are older
+than expected, but _only_ on the tables we will migrate.
+
+The 14th of the month, we run maintenance on last months data. To do that, we
+reindex the table, expire data, clean out duplicates, and cluster the table in
+(itemid,clock) order for efficient queries.
+
+If you do not run the archiver, then expiration only happens for data sets < 14
+days old.
+
 ## Archiver
 
 The archiver tool moves data into an `archive` database.  
@@ -82,4 +114,3 @@ Open questions:
 This doesn't quite work together with the retention tool. Should the two be
 merged together? (either you have archival db, or you have retention.  Don't do
 both, as the retention tool doesn't know about archive tables )
-
