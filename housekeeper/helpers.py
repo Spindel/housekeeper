@@ -3,10 +3,7 @@ import time
 
 from textwrap import dedent
 
-from datetime import (
-    timedelta,
-    date,
-)
+from datetime import timedelta, date
 
 
 DBCONFIG = "/etc/zabbix/zabbix.conf.d/database.conf"
@@ -20,15 +17,14 @@ def execute(cursor, query):
     result = cursor.execute(query)
     end = time.monotonic()
     elapsed = end - start
-    print(f"/* Elapsed: {elapsed:06.2f}"
-          f"  Result:  {result} */")
+    print(f"/* Elapsed: {elapsed:06.2f}" f"  Result:  {result} */")
     return result
 
 
 def load_connection_config(filename=DBCONFIG):
     if not os.path.isfile(filename):
         raise SystemExit(f"No database config in {filename}")
-# File looks like
+    # File looks like
     """
     # DB settings\n
     DBHost=db1.modio.dcl1.synotio.net
@@ -94,12 +90,14 @@ def get_constraint_name(table="history", year=2011, month=12):
 def sql_if_tables_exist(tables, query_iter):
     count = len(tables)
     tables_string = ", ".join("'{}'".format(t) for t in tables)
-    query_string = '\n'.join(x for x in query_iter)
-    yield dedent(f"""
+    query_string = "\n".join(x for x in query_iter)
+    yield dedent(
+        f"""
         DO $$ BEGIN
         IF (SELECT COUNT(*)={count} FROM information_schema.tables WHERE table_name IN ({tables_string})) THEN
         {query_string}
-        END IF; END $$;""")
+        END IF; END $$;"""
+    )
 
 
 def table_exists(conn, table="history"):
