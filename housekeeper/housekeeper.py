@@ -21,6 +21,7 @@ from .times import (
     months_2014_to_current,
 )
 
+FAST_WINDOW = 14
 
 def clean_old_indexes(table="history", year=2011, month=12):
     tablename = get_table_name(table=table, year=year, month=month)
@@ -121,6 +122,29 @@ AND  T1.ns = T2.ns;"""
 
     # Always vacuum before we leave, as we may have caused churn on the table
     yield from vacuum_table(table=table, year=year, month=month)
+
+
+def clean_expired_items(table="history", year=2012, month=12, retention=FAST_WINDOW):
+    """Generates a DELETE statement on the table to clean out "old" data.
+
+    Old is defined as the zabbix way, "items.history" is in days, and compared to
+    our `retention` input data days"""
+    retention = int(retention)
+    if retention < 14:
+        raise ValueError("We do not touch the 14 days of fast data.")
+    tablename = get_table_name(table=table, year=year, month=month)
+    # extract('epoch' from timestamp)  Gets the unix timestamp
+    # interval '14 days'  # is a range of 14-days
+    # item.history is in days
+    yield f"""DELETE
+FROM {tablename}
+WHERE {tablename}.itemid IN (
+    SELECT itemid
+    FROM items
+    WHERE items.history < {retention}
+)
+AND {tablename}.clock <  extract('epoch' from current_timestamp - interval '{retention} days');
+"""
 
 
 def create_item_statistics():
@@ -235,14 +259,6 @@ def sql_prelude():
     yield "SET WORK_MEM='1GB';"
 
 
-def oneshot_maintain_table(table="history", year=2014, month=1):
-    """Run a set of one-shot maintenance operations on a table"""
-    yield from ensure_brin_index(table=table, year=year, month=month)
-    yield from clean_old_indexes(table=table, year=year, month=month)
-    yield from clean_old_items(table=table, year=year, month=month)
-    yield from cluster_table(table=table, year=year, month=month)
-
-
 def do_maintenance(connstr, cluster=False):
     tables = ("history", "history_uint", "history_text", "history_str")
 
@@ -312,6 +328,10 @@ def do_maintenance(connstr, cluster=False):
         if cluster:
             for date in gen_last_month():
                 for table in tables:
+                    # Clean out expired items before we remove duplicates
+                    for x in clean_expired_items(table=table, year=date.year, month=date.month, retention=FAST_WINDOW):
+                        with c.cursor() as curs:
+                            execute(curs, x)
                     # Remove duplicated rows from tables before we cluster them
                     for x in clean_duplicate_items(
                         table=table, year=date.year, month=date.month
@@ -326,11 +346,27 @@ def do_maintenance(connstr, cluster=False):
                             execute(curs, x)
 
 
+def oneshot_maintenance_operation(table="history", year=2018, month=12):
+    yield from ensure_brin_index(table=table, year=year, month=month)
+    yield from clean_old_indexes(table=table, year=year, month=month)
+    yield from clean_old_items(table=table, year=year, month=month)
+    yield from clean_expired_items(table=table, year=year, month=month)
+    yield from clean_duplicate_items(table=table, year=year, month=month)
+    yield from cluster_table(table=table, year=year, month=month)
+
+
+def maintain_last_year():
+    tables = ("history", "history_uint", "history_text", "history_str")
+    for date in months_for_year_past():
+        for table in tables:
+            yield from oneshot_maintenance_operation(table=table, year=date.year, month=date.month)
+
+
 def oneshot_maintenance():
     tables = ("history", "history_uint", "history_text", "history_str")
     for date in months_2014_to_current():
         for table in tables:
-            yield from oneshot_maintain_table(table=table, year=date.year, month=date.month)
+            yield from oneshot_maintenance_operation(table=table, year=date.year, month=date.month)
 
 
 def do_oneshot_maintenance(connstr):
@@ -359,7 +395,7 @@ def do_oneshot_maintenance(connstr):
         for date in months_2014_to_current():
             for table in tables:
                 if should_maintain(c, table=table, year=date.year, month=date.month):
-                    for x in oneshot_maintain_table(table=table, year=date.year, month=date.month):
+                    for x in oneshot_maintenance_operation(table=table, year=date.year, month=date.month):
                         with c.cursor() as curs:
                             execute(curs, x)
 
@@ -386,7 +422,7 @@ def main():
         sys.exit(1)
 
     if command == "cron":
-        should_cluster = datetime.datetime.utcnow().day == 14
+        should_cluster = datetime.datetime.utcnow().day == FAST_WINDOW
         do_maintenance(connstr=connstr, cluster=should_cluster)
     elif command == "cluster":
         do_maintenance(connstr=connstr, cluster=True)
@@ -395,4 +431,5 @@ def main():
 
 
 if __name__ == "__main__":
+    assert FAST_WINDOW == 14, "Fast window should be 14 days."
     main()
