@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+import sys
 import psycopg2
 
 import datetime
@@ -149,25 +149,6 @@ def cluster_table(table="history", year=2011, month=12):
     yield from drop_check_constraint(table=table, year=year, month=month)
 
 
-def migrate_table(server, table="history", year=2011, month=12):
-    """Code to migrate a table to a remote server."""
-    raise NotImplementedError("Not implemented yet")
-    tablename = get_table_name(table=table, year=year, month=month)
-    temp_table = f"{tablename}_temp"
-    start, stop = get_start_and_stop(year=year, month=month)
-    yield "BEGIN TRANSACTION;"
-    yield from detach_partition(table=table, year=year, month=month)
-    yield f"ALTER TABLE {tablename} RENAME TO {temp_table};"
-    yield f"create foreign table if not exists {tablename} like {table} server {server};"
-    yield from attach_partition(table=table, year=year, month=month)
-    yield "COMMIT;"
-    yield "BEGIN TRANSACTION;"
-    yield f"INSERT INTO {tablename} SELECT * from {temp_table} order by itemid,clock;"
-    yield f"DROP TABLE {temp_table};"
-    yield f"ALTER TABLE {tablename} RENAME TO {tablename}_foreign;"
-    yield "COMMIT;"
-
-
 def migrate_config_items():
     yield "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;"
     yield ("INSERT INTO history_text (id, ns, itemid, clock, value) "
@@ -190,6 +171,14 @@ def should_maintain(conn, table="history", year=2112, month=12):
 
 def sql_prelude():
     yield "SET WORK_MEM='1GB';"
+
+
+def oneshot_maintain_table(table="history", year=2014, month=1):
+    """Run a set of one-shot maintenance operations on a table"""
+    yield from ensure_brin_index(table=table, year=year, month=month)
+    yield from clean_old_indexes(table=table, year=year, month=month)
+    yield from clean_old_items(table=table, year=year, month=month)
+    yield from cluster_table(table=table, year=year, month=month)
 
 
 def do_maintenance(connstr, cluster=False):
@@ -256,16 +245,68 @@ def oneshot_maintenance():
     tables = ("history", "history_uint", "history_text", "history_str")
     for date in months_2014_to_current():
         for table in tables:
-            yield from ensure_brin_index(table=table, year=date.year, month=date.month)
-            yield from clean_old_indexes(table=table, year=date.year, month=date.month)
-            yield from clean_old_items(table=table, year=date.year, month=date.month)
-            yield from cluster_table(table=table, year=date.year, month=date.month)
+            yield from oneshot_maintain_table(table=table, year=date.year, month=date.month)
+
+
+def do_oneshot_maintenance(connstr):
+    tables = ("history", "history_uint", "history_text", "history_str")
+
+    with psycopg2.connect(connstr) as c:
+        c.autocommit = True  # Don't implicitly open a transaction
+        with c.cursor() as curs:
+            for statement in sql_prelude():
+                execute(curs, statement)
+
+        # Move config items out
+        for x in migrate_config_items():
+            with c.cursor() as curs:
+                execute(curs, x)
+
+        # Create statistics (let the auto-analyze function analyze later)
+        with c.cursor() as curs:
+            for x in create_item_statistics():
+                execute(curs, x)
+            for table in tables:
+                for x in create_statistics(table=table):
+                    execute(curs, x)
+
+        # And for all tables, do complete maintenance
+        for date in months_2014_to_current():
+            for table in tables:
+                if should_maintain(c, table=table, year=date.year, month=date.month):
+                    for x in oneshot_maintain_table(table=table, year=date.year, month=date.month):
+                        with c.cursor() as curs:
+                            execute(curs, x)
 
 
 def main():
     connstr = connstring()
-    should_cluster = datetime.datetime.utcnow().day == 14
-    do_maintenance(connstr=connstr, cluster=should_cluster)
+    command = "help"
+    if len(sys.argv) == 1:
+        command = "cron"
+    elif len(sys.argv) > 1:
+        command = sys.argv[-1]
+
+    if command not in ("cron", "cluster", "oneshot"):
+        print(f"Usage: {sys.argv[0]} {{ COMMAND }}")
+        print("where COMMAND := { cluster | oneshot | cluster_all }")
+        print("")
+        print("oneshot: Sets up indexes, cleans out items, and clusters all tables from 2014 and onwards. ")
+        print("         Extremely heavy operation. ")
+        print("cluster: Clusters last month, run in case you missed the cron job the 14th.")
+        print("cron: Ensures indexes exist, table partitions exists for the")
+        print("      future, and will cluster last month if the date is the 14th")
+        print("-")
+        print("No arguments: run in cron mode")
+        sys.exit(1)
+
+    if command == "cron":
+        should_cluster = datetime.datetime.utcnow().day == 14
+        do_maintenance(connstr=connstr, cluster=should_cluster)
+    elif command == "cluster":
+        do_maintenance(connstr=connstr, cluster=True)
+    elif command == "oneshot":
+        do_oneshot_maintenance(connstr=connstr)
 
 
 if __name__ == '__main__':
