@@ -31,6 +31,7 @@ from .housekeeper import (
     do_cluster_operation,
     clean_duplicate_items,
     clean_old_items,
+    clean_expired_items,
     should_maintain,
     sql_prelude,
 )
@@ -353,6 +354,14 @@ def migrate_data(source_connstr, dest_connstr):
                     for x in clean_old_items(table=table, year=date.year, month=date.month):
                         with source.cursor() as curs:
                             execute(curs, x)
+
+                    # Then clean out expired items (should be deleted)
+                    for x in clean_expired_items(
+                        table=table, year=date.year, month=date.month, retention=retention
+                    ):
+                        with source.cursor() as curs:
+                            execute(curs, x)
+
                     # Then clean up duplicate data ( warning, slow)
                     for x in clean_duplicate_items(table=table, year=date.year, month=date.month):
                         with source.cursor() as curs:
@@ -459,7 +468,7 @@ def main():
     elif command == "oneshot_cluster":
         archive_connstr = archive_connstring()
         oneshot_cluster(archive_connstr)
-    elif command == "dedube":
+    elif command == "dedupe":
         archive_connstr = archive_connstring()
         oneshot_dedupe(archive_connstr)
     elif command == "cron":
