@@ -1,5 +1,5 @@
 # Submit image
-FROM registry.gitlab.com/modioab/base-image/fedora-29/python:master
+FROM registry.gitlab.com/modioab/base-image/fedora-31/python:master
 MAINTAINER "D.S. Ljungmark" <ljungmark@modio.se>
 
 ARG URL=unknown
@@ -14,7 +14,7 @@ LABEL "se.modio.ci.url"=$URL       \
       "se.modio.ci.host"=$HOST     \
       "se.modio.ci.date"=$DATE
 
-# Add our (package) 
+# Add our (package)
 ADD source.tar /
 
 
