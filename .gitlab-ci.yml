@@ -6,7 +6,7 @@ before_script:
     - uname -a
 
 test:
-    image: registry.gitlab.com/modioab/base-image/fedora-29/build:master
+    image: registry.gitlab.com/modioab/base-image/fedora-31/build:master
     stage: test
     when: always
     script:
@@ -17,7 +17,7 @@ test:
         - python3 setup.py flake8
 
 container:
-    image: registry.gitlab.com/modioab/base-image/fedora-29/container:master
+    image: registry.gitlab.com/modioab/base-image/fedora-31/container:master
     stage: publish
     tags:
         - x86_64
