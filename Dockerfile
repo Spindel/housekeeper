@@ -19,11 +19,11 @@ ADD source.tar /
 
 
 RUN cd /srv/app/ 	&& \
-    echo housekeeper:x:100100:100:housekeeper:/srv/app:/sbin/nologin >> /etc/passwd     && \
+    echo housekeeper:x:1001:100:housekeeper:/srv/app:/sbin/nologin >> /etc/passwd     && \
     pip3 --no-cache-dir install .           && \
     mkdir /data && chown housekeeper /data
 
 
-USER 100100
+USER 1001
 WORKDIR /data
 CMD /bin/bash
