@@ -1,16 +1,16 @@
 ### Configuration
 
-ARCHIVE_PREFIX = /srv/app
-SOURCE_ARCHIVE = source.tar
-
-
 IMAGE_REPO = registry.gitlab.com/modioab/housekeeper
 IMAGE_ARCHIVE = image.tar
-IMAGE_FILES += $(SOURCE_ARCHIVE)
+
+IMAGE_FILES += wheel
+CLEANUP_FILES += wheel
 
 .DEFAULT_GOAL = all
 include build.mk
 
+wheel:
+	pip3 wheel --wheel-dir=wheel -r requirements.txt .
 
 ### Standard targets
 
