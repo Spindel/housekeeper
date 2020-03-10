@@ -8,3 +8,6 @@ image.tar
 .eggs
 .mypy_cache/
 .pytest_cache/
+/testreport.xml
+/mypyreport.xml
+/.coverage
