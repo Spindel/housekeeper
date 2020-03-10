@@ -2,9 +2,6 @@ stages:
     - test
     - publish
 
-before_script:
-    - uname -a
-
 test:
     image: registry.gitlab.com/modioab/base-image/fedora-31/python:master
     stage: test
@@ -23,10 +20,11 @@ test:
                 - mypyreport.xml
 
 container:
-    image: registry.gitlab.com/modioab/base-image/fedora-31/container:master
+    image: registry.gitlab.com/modioab/base-image/fedora-31/build:master
     stage: publish
     tags:
         - x86_64
     script:
         - make -f build.mk login
+        - pip3 install wheel
         - make build-publish

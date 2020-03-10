@@ -15,14 +15,11 @@ LABEL "se.modio.ci.url"=$URL       \
       "se.modio.ci.date"=$DATE
 
 # Add our (package)
-ADD source.tar /
+ADD wheel /tmp/wheel
 
-
-RUN cd /srv/app/ 	&& \
-    echo housekeeper:x:1001:100:housekeeper:/srv/app:/sbin/nologin >> /etc/passwd     && \
-    pip3 --no-cache-dir install .           && \
-    mkdir /data && chown housekeeper /data
-
+RUN pip3 install --no-index --find-links=/tmp/wheel housekeeper && \
+    echo housekeeper:x:1001:100:housekeeper:/data:/sbin/nologin >> /etc/passwd && \
+    rm -rf /tmp/wheel && mkdir /data && chown housekeeper /data
 
 USER 1001
 WORKDIR /data

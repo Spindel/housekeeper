@@ -11,3 +11,4 @@ image.tar
 /testreport.xml
 /mypyreport.xml
 /.coverage
+/wheel

@@ -4,7 +4,6 @@ requires = ["psycopg2-binary >= 2.7.4"]
 
 setup(
     name="housekeeper",
-    version="1.0",
     description="A Zabbix housekeeper for Modio",
     long_description="",
     author="D.S. Ljungmark",
@@ -14,6 +13,7 @@ setup(
     zip_safe=True,
     include_package_data=True,
     install_requires=requires,
+    use_scm_version={"write_to": "version.txt"},
     entry_points={
         "console_scripts": [
             "housekeeper = housekeeper.housekeeper:main",
