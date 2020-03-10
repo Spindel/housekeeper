@@ -6,15 +6,21 @@ before_script:
     - uname -a
 
 test:
-    image: registry.gitlab.com/modioab/base-image/fedora-31/build:master
+    image: registry.gitlab.com/modioab/base-image/fedora-31/python:master
     stage: test
     when: always
     script:
-        - pip3 install .[testing]
-        - pip3 install flake8 mypy
-        - python3 setup.py test
+        - pip3 install -r requirements-dev.txt
+        - pip3 install .
+        - pytest .
         - mypy .
-        - python3 setup.py flake8
+        - flake8 .
+    coverage: '/^TOTAL.+?(\d+\%)$/'
+    artifacts:
+        reports:
+            junit: 
+                - testreport.xml
+                - mypyreport.xml
 
 container:
     image: registry.gitlab.com/modioab/base-image/fedora-31/container:master
