@@ -56,6 +56,13 @@ def load_connection_config(filename=DBCONFIG):
     return (dbname, dbuser, dbhost, dbport, dbpass)
 
 
+def get_role(filename=DBCONFIG):
+    """Return a suitable name for the SET ROLE operation."""
+    dbname, _, _, _, _ = load_connection_config(filename=filename)
+    rolename = os.environ.get("DATABASE_ROLE", dbname)
+    return rolename
+
+
 def connstring(filename=DBCONFIG):
     inputs = load_connection_config(filename=filename)
     output = "dbname='%s' user='%s' host='%s' port='%s' password='%s'"
