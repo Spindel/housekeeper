@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import sys
+import os
+
 import psycopg2
 
 import datetime
@@ -7,7 +9,6 @@ import datetime
 from .helpers import (
     connstring,
     execute,
-    get_role,
     get_constraint_name,
     get_index_name,
     get_table_name,
@@ -259,6 +260,15 @@ def should_maintain(conn, table="history", year=2112, month=12):
     return table_exists(conn, tbname)
 
 
+def get_role():
+    """Return a suitable name for the SET ROLE operation."""
+    rolename = os.environ.get("HOUSEKEEPER_ROLE", "")
+    rolename = rolename.strip()
+    if not rolename:
+        raise ValueError("Environment variable HOUSEKEEPER_ROLE must be set.")
+    return rolename
+
+
 def sql_prelude():
     role = get_role()
     yield f'''SET ROLE "{role}";'''
@@ -417,8 +427,20 @@ def do_oneshot_maintenance(connstr):
                             execute(curs, x)
 
 
+def role_msg():
+    """Wrapper for get role to give a pretty error"""
+    try:
+        get_role()
+    except ValueError as err:
+        msg = str(err)
+        print(msg)
+        sys.exit(2)
+
+
 def main():
+    role_msg()
     connstr = connstring()
+
     command = "help"
     if len(sys.argv) == 1:
         command = "cron"
@@ -438,7 +460,7 @@ cron:    Ensures indexes exist, table partitions exists for the")
          future, and will cluster last month if the date is the 14th"""
         )
         print("-")
-        print("set the role with the environment variable 'DATABASE_ROLE'")
+        print("set the role with the environment variable 'HOUSEKEEPER_ROLE'")
         print("No arguments: run in cron mode")
         sys.exit(1)
 
