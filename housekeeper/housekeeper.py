@@ -7,6 +7,7 @@ import datetime
 from .helpers import (
     connstring,
     execute,
+    get_role,
     get_constraint_name,
     get_index_name,
     get_table_name,
@@ -259,6 +260,8 @@ def should_maintain(conn, table="history", year=2112, month=12):
 
 
 def sql_prelude():
+    role = get_role()
+    yield f'''SET ROLE "{role};"'''
     yield "SET WORK_MEM='1GB';"
 
 
@@ -435,6 +438,7 @@ cron:    Ensures indexes exist, table partitions exists for the")
          future, and will cluster last month if the date is the 14th"""
         )
         print("-")
+        print("set the role with the environment variable 'DATABASE_ROLE'")
         print("No arguments: run in cron mode")
         sys.exit(1)
 
