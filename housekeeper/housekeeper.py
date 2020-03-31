@@ -261,7 +261,7 @@ def should_maintain(conn, table="history", year=2112, month=12):
 
 def sql_prelude():
     role = get_role()
-    yield f'''SET ROLE "{role};"'''
+    yield f'''SET ROLE "{role}";'''
     yield "SET WORK_MEM='1GB';"
 
 
