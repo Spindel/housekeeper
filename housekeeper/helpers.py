@@ -58,13 +58,19 @@ def load_connection_config(filename=DBCONFIG):
 
 def connstring(filename=DBCONFIG):
     inputs = load_connection_config(filename=filename)
-    output = "dbname='%s' user='%s' host='%s' port='%s' password='%s'"
+    output = (
+        "dbname='%s' user='%s' host='%s' port='%s' password='%s'"
+        " keepalives=1 keepalives_idle=15 keepalives_interval=15 keepalives_count=15"
+    )
     return output % inputs
 
 
 def archive_connstring(filename=DBCONFIG):
     dbname, dbuser, dbhost, dbport, dbpass = load_connection_config(filename=filename)
-    output = "host='%s' port='%s' dbname='%s' user='%s' password='%s' sslmode='%s'"
+    output = (
+        "host='%s' port='%s' dbname='%s' user='%s' password='%s' sslmode='%s'"
+        " keepalives=1 keepalives_idle=15 keepalives_interval=15 keepalives_count=15"
+    )
     dbname = os.environ.get("ARCHIVE_PGDATABASE", dbname)
     dbhost = os.environ.get("ARCHIVE_PGHOST", dbhost)
     dbport = os.environ.get("ARCHIVE_PGPORT", dbport)
