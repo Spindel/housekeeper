@@ -5,7 +5,9 @@ import itertools
 import threading
 import time
 import psycopg2
-import logging
+
+import structlog
+from structlog.contextvars import bind_contextvars, unbind_contextvars
 
 from textwrap import dedent
 
@@ -25,6 +27,7 @@ from .helpers import (
     sql_if_tables_exist,
     table_exists,
 )
+from .logs import setup_logging
 
 from .housekeeper import (
     ensure_brin_index,
@@ -72,7 +75,7 @@ FOREIGN_NAMES = {
 }
 
 
-log = logging.getLogger()
+_log = structlog.get_logger()
 
 
 def get_retention():
@@ -208,7 +211,8 @@ def python_migrate_table_to_archive(src_conn, dst_conn, table="history", year=20
         return
     src_query = f"COPY (SELECT * FROM {src_table}) TO STDOUT;"
 
-    log.info("Tables %s and %s exists, starting data transfer", src_table, dst_table)
+    log = _log.bind(source=src_table, destination=dst_table)
+    log.info("Tables exist. Starting data transfer")
 
     # a pipe to read/write with, will be wrapped in file handles for the sake
     # of the API
@@ -311,24 +315,42 @@ def migrate_table_to_archive(table="history", year=2011, month=12):
     yield "COMMIT;"
 
 
+def log_and_reset_notices(conn):
+    """Log the notifications."""
+    log = _log.bind(
+        dbhost=conn.info.host, dbname=conn.info.dbname, dbuser=conn.info.user
+    )
+    if not conn.notices:
+        return
+
+    for n, msg in enumerate(conn.notices):
+        log.info("DB notice", notice_no=n, notice=msg)
+    conn.notices.clear()
+
+
 def archive_maintenance(connstr):
     tables = ("history", "history_uint", "history_text", "history_str")
 
     with psycopg2.connect(connstr) as c:
         c.autocommit = True  # Don't implicitly open a transaction
+        bind_contextvars(stage="archive_maintenance")
         with c.cursor() as curs:
             for statement in sql_prelude():
                 execute(curs, statement)
+        log_and_reset_notices(c)
 
         for table in tables:
             for date in months_for_year_ahead():
                 with c.cursor() as curs:
                     for x in create_archive_table(table=table, year=date.year, month=date.month):
                         execute(curs, x)
+            log_and_reset_notices(c)
             for date in months_for_year_past():
                 with c.cursor() as curs:
                     for x in create_archive_table(table=table, year=date.year, month=date.month):
                         execute(curs, x)
+            log_and_reset_notices(c)
+        unbind_contextvars("stage")
 
 
 def migrate_data(source_connstr, dest_connstr):
@@ -345,6 +367,7 @@ def migrate_data(source_connstr, dest_connstr):
             with conn.cursor() as curs:
                 for statement in sql_prelude():
                     execute(curs, statement)
+            log_and_reset_notices(conn)
 
         for date in months_between(to_date=end):
             for table in tables:
@@ -354,18 +377,20 @@ def migrate_data(source_connstr, dest_connstr):
                     for x in clean_old_items(table=table, year=date.year, month=date.month):
                         with source.cursor() as curs:
                             execute(curs, x)
-
+                    log_and_reset_notices(conn=source)
                     # Then clean out expired items (should be deleted)
                     for x in clean_expired_items(
                         table=table, year=date.year, month=date.month, retention=retention
                     ):
                         with source.cursor() as curs:
                             execute(curs, x)
+                    log_and_reset_notices(conn=source)
 
                     # Then clean up duplicate data ( warning, slow)
                     for x in clean_duplicate_items(table=table, year=date.year, month=date.month):
                         with source.cursor() as curs:
                             execute(curs, x)
+                    log_and_reset_notices(conn=source)
 
                 with source.cursor() as curs:
                     for x in swap_live_and_archive_tables(table=table, year=date.year, month=date.month):
@@ -373,14 +398,18 @@ def migrate_data(source_connstr, dest_connstr):
                             execute(curs, x)
                         except psycopg2.ProgrammingError:
                             pass
+                log_and_reset_notices(conn=source)
                 # First we do the high performance COPY operation
                 python_migrate_table_to_archive(src_conn=source, dst_conn=dest,
                                                 table=table, year=date.year, month=date.month)
+                log_and_reset_notices(conn=source)
+                log_and_reset_notices(conn=dest)
                 # Then we do the slow performance one that also cleans out the
                 # tables.
                 with source.cursor() as curs:
                     for x in migrate_table_to_archive(table=table, year=date.year, month=date.month):
                         execute(curs, x)
+                log_and_reset_notices(conn=source)
 
 
 def oneshot_cluster(connstr):
@@ -440,8 +469,7 @@ def oneshot_migrate():
 
 
 def main():
-    logfmt = '/* %(relativeCreated)6d %(levelname)s:%(threadName)s:%(name)s> %(message)s */'
-    logging.basicConfig(level=logging.INFO, format=logfmt)
+    setup_logging()
 
     if len(sys.argv) != 2:
         print(f"Usage: {sys.argv[0]} {{ COMMAND }}")

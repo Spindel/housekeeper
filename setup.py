@@ -1,6 +1,9 @@
 from setuptools import setup, find_packages
 
-requires = ["psycopg2-binary >= 2.7.4"]
+requires = [
+    "psycopg2-binary >= 2.7.4",
+    "structlog >= 20.1.0",
+]
 
 setup(
     name="housekeeper",

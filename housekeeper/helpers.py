@@ -2,8 +2,11 @@ import os
 import time
 
 from textwrap import dedent
-
 from datetime import timedelta, date
+
+import structlog
+
+_log = structlog.get_logger(__name__)
 
 
 DBCONFIG = "/etc/zabbix/zabbix.conf.d/database.conf"
@@ -12,12 +15,15 @@ MONTHISH = timedelta(days=31)
 
 
 def execute(cursor, query):
+    info = cursor.connection.info
+    log = _log.bind(dbhost=info.host, dbname=info.dbname, dbuser=info.user, query=query)
+
     start = time.monotonic()
-    print(f"/* {query} */")
+    log.info("executing")
     result = cursor.execute(query)
     end = time.monotonic()
     elapsed = end - start
-    print(f"/* Elapsed: {elapsed:06.2f}" f"  Result:  {result} */")
+    log.info("Done", result=result, elapsed=f"{elapsed:06.2f}")
     return result
 
 
