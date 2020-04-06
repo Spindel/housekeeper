@@ -2,10 +2,21 @@ import sys
 import threading
 import logging
 
+from contextlib import contextmanager
 
 import structlog
+from structlog.contextvars import bind_contextvars, unbind_contextvars
 
 _log = structlog.get_logger(__name__)
+
+
+@contextmanager
+def log_state(*args, **kws):
+    bind_contextvars(**kws)
+    try:
+        yield
+    finally:
+        unbind_contextvars(*kws)
 
 
 def add_thread_name(logger, method_name, event_dict):
