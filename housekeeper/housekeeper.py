@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 import sys
 import os
+import datetime
 
 import psycopg2
-
-import datetime
 
 from .helpers import (
     connstring,
@@ -22,8 +21,25 @@ from .times import (
     get_start_and_stop,
     months_2014_to_current,
 )
+from .logs import log_state
 
 FAST_WINDOW = 14
+
+
+def log_step(func):
+    """Wrap a final SQL generating thing in a step function.
+
+    It's important to not use this one on functions that yield from other SQL
+    generating functions, those need to set up their own logging.
+
+    This one does the final step.
+    """
+
+    def wrapper(*args, **kws):
+        with log_state(step=func.__name__):
+            yield from func(*args, **kws)
+
+    return wrapper
 
 
 def clean_old_indexes(table="history", year=2011, month=12):
@@ -35,39 +51,45 @@ def clean_old_indexes(table="history", year=2011, month=12):
     ]
     cleanup = "DROP INDEX IF EXISTS {};"
     for oldindex in oldindexes:
-        yield cleanup.format(oldindex)
+        with log_state(step="clean_old_indexes", index=oldindex):
+            yield cleanup.format(oldindex)
 
 
 def ensure_btree_index(table="history", year=2011, month=12, concurrently=True):
     index = get_index_name(table=table, year=year, month=month, kind="btree")
     table = get_table_name(table=table, year=year, month=month)
     conc = "CONCURRENTLY" if concurrently else ""
-    yield f"CREATE INDEX {conc} IF NOT EXISTS {index} on {table} using btree (itemid, clock);"
+    with log_state(step="ensure_btree_index", table=table, index=index):
+        yield f"CREATE INDEX {conc} IF NOT EXISTS {index} on {table} using btree (itemid, clock);"
 
 
 def ensure_brin_index(table="history", year=2011, month=12):
     index = get_index_name(table=table, year=year, month=month, kind="brin")
     table = get_table_name(table=table, year=year, month=month)
-    yield (
-        f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {index} on {table} "
-        f"USING brin (itemid, clock) WITH (pages_per_range='16');"
-    )
+    with log_state(step="ensure_brin_index", index=index, table=table):
+        yield (
+            f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {index} on {table} "
+            f"USING brin (itemid, clock) WITH (pages_per_range='16');"
+        )
 
 
 def clean_btree_index(table="history", year=2011, month=12):
     index = get_index_name(table=table, year=year, month=month, kind="btree")
-    yield f"DROP INDEX IF EXISTS {index};"
+    with log_state(step="clean_btree_index", index=index):
+        yield f"DROP INDEX IF EXISTS {index};"
 
 
 def clean_old_items(table="history", year=2011, month=12):
     table = get_table_name(table=table, year=year, month=month)
-    yield f"DELETE FROM {table} WHERE itemid NOT IN (select itemid FROM items);"
+    with log_state(step="clean_old_items", table=table):
+        yield f"DELETE FROM {table} WHERE itemid NOT IN (select itemid FROM items);"
 
 
 def vacuum_table(table="history", year=2011, month=12):
     """Vacuums the table. Because you asked for it"""
     table = get_table_name(table=table, year=year, month=month)
-    yield f"VACUUM ANALYZE {table};"
+    with log_state(step="vacuum_table", table=table):
+        yield f"VACUUM ANALYZE {table};"
 
 
 def clean_duplicate_items(table="history", year=2011, month=12, count_seconds=33613):
@@ -89,18 +111,21 @@ def clean_duplicate_items(table="history", year=2011, month=12, count_seconds=33
     count = 0
 
     while stop <= end_time:
-        # This operation may cause a LOT of churn and is helped by a
-        # functional vacuum.
+        with log_state(
+            dedupe_table=table, dedupe_start=start, dedupe_stop=stop, dedupe_count=count
+        ):
+            # This operation may cause a LOT of churn and is helped by a
+            # functional vacuum.
 
-        # Because we batch on smaller groups, to consume less memory, it's
-        # important that we sometimes have working statistics, otherwise a
-        # delete query towards the end of a month will have enough churn in the
-        # blocks to cause DELETE queries to block for several days.
-        # 11 is a fun palindrome and prime.
-        if count % 11 == 0:
-            yield from vacuum_table(table=table, year=year, month=month)
+            # Because we batch on smaller groups, to consume less memory, it's
+            # important that we sometimes have working statistics, otherwise a
+            # delete query towards the end of a month will have enough churn in the
+            # blocks to cause DELETE queries to block for several days.
+            # 11 is a fun palindrome and prime.
+            if count % 11 == 0:
+                yield from vacuum_table(table=table, year=year, month=month)
 
-        yield f"""DELETE
+            yield f"""DELETE
 FROM {partition} T1
 USING (
       SELECT MIN(ctid) as ctid,
@@ -121,14 +146,15 @@ AND  T1.clock = T2.clock
 AND  T1.value = T2.value
 AND  T1.ns = T2.ns;"""
 
-        start = stop
-        stop = start + count_seconds
-        count += 1
+            start = stop
+            stop = start + count_seconds
+            count += 1
 
     # Always vacuum before we leave, as we may have caused churn on the table
     yield from vacuum_table(table=table, year=year, month=month)
 
 
+@log_step
 def clean_expired_items(table="history", year=2012, month=12, retention=FAST_WINDOW):
     """Generates a DELETE statement on the table to clean out "old" data.
 
@@ -152,26 +178,31 @@ AND {tablename}.clock <  extract('epoch' from current_timestamp - interval '{ret
 """
 
 
+@log_step
 def create_item_statistics():
     yield "CREATE STATISTICS IF NOT EXISTS s_items ON itemid, name, key_, hostid FROM items;"
 
 
+@log_step
 def create_statistics(table="history"):
     yield f"CREATE STATISTICS IF NOT EXISTS s_{table} ON itemid, clock FROM {table};"
 
 
+@log_step
 def create_table_partition(table="history", year=2011, month=12):
     start, stop = get_start_and_stop(year=year, month=month)
     tablename = get_table_name(table=table, year=year, month=month)
     yield f"CREATE TABLE IF NOT EXISTS {tablename} PARTITION OF {table} FOR values FROM ({start}) TO ({stop});"
 
 
+@log_step
 def detach_partition(table="history", year=2011, month=12):
     tablename = get_table_name(table=table, year=year, month=month)
     detach = f"ALTER TABLE {table} DETACH PARTITION {tablename};"
     yield detach
 
 
+@log_step
 def drop_check_constraint(table="history", year=2011, month=12):
     tablename = get_table_name(table=table, year=year, month=month)
     constraint_name = get_constraint_name(table=table, year=year, month=month)
@@ -191,6 +222,7 @@ def add_check_constraint(table="history", year=2011, month=12):
     yield constraint
 
 
+@log_step
 def attach_partition(table="history", year=2011, month=12):
     start, stop = get_start_and_stop(year=year, month=month)
     partition_name = get_table_name(table=table, year=year, month=month)
@@ -217,26 +249,29 @@ def cluster_table(table="history", year=2011, month=12):
     start, stop = get_start_and_stop(year=year, month=month)
     temp_table = f"{tablename}_temp"
 
-    yield "BEGIN TRANSACTION;"
-    yield from detach_partition(table=table, year=year, month=month)
-    yield f"CREATE TABLE IF NOT EXISTS {temp_table} PARTITION OF {table} for values from ({start}) to ({stop});"
-    yield "COMMIT;"
+    with log_state(cluster_table=tablename, cluster_temp_table=temp_table):
+        yield "BEGIN TRANSACTION;"
+        yield from detach_partition(table=table, year=year, month=month)
+        yield f"CREATE TABLE IF NOT EXISTS {temp_table} PARTITION OF {table} for values from ({start}) to ({stop});"
+        yield "COMMIT;"
 
-    yield from do_cluster_operation(table=table, year=year, month=month)
+        yield from do_cluster_operation(table=table, year=year, month=month)
 
-    yield "BEGIN TRANSACTION;"
-    yield f"ALTER TABLE {table} DETACH PARTITION {temp_table};"
-    yield from attach_partition(table=table, year=year, month=month)
-    yield "COMMIT;"
+        yield "BEGIN TRANSACTION;"
+        yield f"ALTER TABLE {table} DETACH PARTITION {temp_table};"
+        yield from attach_partition(table=table, year=year, month=month)
+        yield "COMMIT;"
 
-    yield "BEGIN TRANSACTION;"
-    yield f"INSERT INTO {tablename} SELECT * from {temp_table} order by itemid,clock;"
-    yield f"DROP TABLE {temp_table};"
-    yield "COMMIT;"
+        yield "BEGIN TRANSACTION;"
+        yield f"INSERT INTO {tablename} SELECT * from {temp_table} order by itemid,clock;"
+        yield f"DROP TABLE {temp_table};"
+        yield "COMMIT;"
 
-    yield from drop_check_constraint(table=table, year=year, month=month)
+    with log_state(cluster_table=tablename):
+        yield from drop_check_constraint(table=table, year=year, month=month)
 
 
+@log_step
 def migrate_config_items():
     yield "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;"
     yield (
@@ -270,9 +305,10 @@ def get_role():
 
 
 def sql_prelude():
-    role = get_role()
-    yield f'''SET ROLE "{role}";'''
-    yield "SET WORK_MEM='1GB';"
+    with log_state(step="sql_prelude"):
+        role = get_role()
+        yield f"""SET ROLE "{role}";"""
+        yield "SET WORK_MEM='1GB';"
 
 
 def do_maintenance(connstr, cluster=False):
