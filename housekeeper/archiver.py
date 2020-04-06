@@ -7,7 +7,6 @@ import time
 import psycopg2
 
 import structlog
-from structlog.contextvars import bind_contextvars, unbind_contextvars
 
 from textwrap import dedent
 
@@ -27,7 +26,7 @@ from .helpers import (
     sql_if_tables_exist,
     table_exists,
 )
-from .logs import setup_logging
+from .logs import setup_logging, log_state
 
 from .housekeeper import (
     ensure_brin_index,
@@ -333,24 +332,23 @@ def archive_maintenance(connstr):
 
     with psycopg2.connect(connstr) as c:
         c.autocommit = True  # Don't implicitly open a transaction
-        bind_contextvars(stage="archive_maintenance")
-        with c.cursor() as curs:
-            for statement in sql_prelude():
-                execute(curs, statement)
-        log_and_reset_notices(c)
+        with log_state(stage="archive_maintenance"):
+            with c.cursor() as curs:
+                for statement in sql_prelude():
+                    execute(curs, statement)
+            log_and_reset_notices(c)
 
-        for table in tables:
-            for date in months_for_year_ahead():
-                with c.cursor() as curs:
-                    for x in create_archive_table(table=table, year=date.year, month=date.month):
-                        execute(curs, x)
-            log_and_reset_notices(c)
-            for date in months_for_year_past():
-                with c.cursor() as curs:
-                    for x in create_archive_table(table=table, year=date.year, month=date.month):
-                        execute(curs, x)
-            log_and_reset_notices(c)
-        unbind_contextvars("stage")
+            for table in tables:
+                for date in months_for_year_ahead():
+                    with c.cursor() as curs:
+                        for x in create_archive_table(table=table, year=date.year, month=date.month):
+                            execute(curs, x)
+                log_and_reset_notices(c)
+                for date in months_for_year_past():
+                    with c.cursor() as curs:
+                        for x in create_archive_table(table=table, year=date.year, month=date.month):
+                            execute(curs, x)
+                log_and_reset_notices(c)
 
 
 def migrate_data(source_connstr, dest_connstr):
