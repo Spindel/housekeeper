@@ -79,10 +79,28 @@ def clean_btree_index(table="history", year=2011, month=12):
         yield f"DROP INDEX IF EXISTS {index};"
 
 
-def clean_old_items(table="history", year=2011, month=12):
-    table = get_table_name(table=table, year=year, month=month)
-    with log_state(step="clean_old_items", table=table):
-        yield f"DELETE FROM {table} WHERE itemid NOT IN (select itemid FROM items);"
+def clean_old_items(table="history", year=2011, month=12, count_seconds=86399):
+    """In small batches, delete removed items from history tables.
+    The time logic is a bit hairy.
+
+    We don't parse the entire month at once, but in minor batches to make life
+    better for the database and cut down on amount of temp/sort space needed.
+    """
+    partition = get_table_name(table=table, year=year, month=month)
+    start, end_time = get_start_and_stop(year=year, month=month)
+    stop = start + count_seconds
+    count = 0
+
+    while stop <= end_time:
+        with log_state(step="clean_old_items", where=table, delete_start=start, delete_stop=stop, iteration=count):
+            yield f"""DELETE FROM {partition} T1
+WHERE T1.clock BETWEEN {start} AND {stop}
+AND T1.itemid NOT IN (SELECT itemid FROM items);"""
+            start = stop
+            stop = start + count_seconds
+            count += 1
+    # Always vacuum before we leave, as we may have caused churn on the table
+    yield from vacuum_table(table=table, year=year, month=month)
 
 
 def vacuum_table(table="history", year=2011, month=12):
@@ -111,9 +129,8 @@ def clean_duplicate_items(table="history", year=2011, month=12, count_seconds=33
     count = 0
 
     while stop <= end_time:
-        with log_state(
-            dedupe_table=table, dedupe_start=start, dedupe_stop=stop, dedupe_count=count
-        ):
+        with log_state(step="clean_duplicate_items",
+                       where=table, dedupe_start=start, dedupe_stop=stop, iteration=count):
             # This operation may cause a LOT of churn and is helped by a
             # functional vacuum.
 
@@ -154,8 +171,7 @@ AND  T1.ns = T2.ns;"""
     yield from vacuum_table(table=table, year=year, month=month)
 
 
-@log_step
-def clean_expired_items(table="history", year=2012, month=12, retention=FAST_WINDOW):
+def clean_expired_items(table="history", year=2012, month=12, retention=FAST_WINDOW, count_seconds=86399):
     """Generates a DELETE statement on the table to clean out "old" data.
 
     Old is defined as the zabbix way, "items.history" is in days, and compared to
@@ -164,18 +180,21 @@ def clean_expired_items(table="history", year=2012, month=12, retention=FAST_WIN
     if retention < 14:
         raise ValueError("We do not touch the 14 days of fast data.")
     tablename = get_table_name(table=table, year=year, month=month)
-    # extract('epoch' from timestamp)  Gets the unix timestamp
-    # interval '14 days'  # is a range of 14-days
-    # item.history is in days
-    yield f"""DELETE
-FROM {tablename}
-WHERE {tablename}.itemid IN (
-    SELECT itemid
-    FROM items
-    WHERE items.history < {retention}
-)
-AND {tablename}.clock <  extract('epoch' from current_timestamp - interval '{retention} days');
-"""
+    start, end_time = get_start_and_stop(year=year, month=month)
+    stop = start + count_seconds
+    count = 0
+    while stop <= end_time:
+        with log_state(step="clean_expired_items", where="table", clean_start=start, clean_stop=stop, iteration=count):
+            # extract('epoch' from timestamp)  Gets the unix timestamp
+            # interval '14 days'  # is a range of 14-days
+            # item.history is in days
+            yield f"""DELETE FROM {tablename} T1
+WHERE T1.clock BETWEEN {start} AND {stop}
+AND T1.itemid IN (SELECT itemid FROM items WHERE items.history < {retention})
+AND T1.clock < extract('epoch' from current_timestamp - interval '{retention} days');"""
+            start = stop
+            stop = start + count_seconds
+            count += 1
 
 
 @log_step
