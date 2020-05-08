@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import sys
-import os
 import datetime
 
 import psycopg2
@@ -8,10 +7,12 @@ import psycopg2
 from .helpers import (
     connstring,
     execute,
+    prelude_cursor,
     get_constraint_name,
     get_index_name,
     get_table_name,
     table_exists,
+    get_role,
 )
 
 from .times import (
@@ -302,22 +303,6 @@ def should_maintain(conn, table="history", year=2112, month=12):
     return table_exists(conn, tbname)
 
 
-def get_role():
-    """Return a suitable name for the SET ROLE operation."""
-    rolename = os.environ.get("HOUSEKEEPER_ROLE", "")
-    rolename = rolename.strip()
-    if not rolename:
-        raise ValueError("Environment variable HOUSEKEEPER_ROLE must be set.")
-    return rolename
-
-
-def sql_prelude():
-    with log_state(step="sql_prelude"):
-        role = get_role()
-        yield f"""SET ROLE "{role}";"""
-        yield "SET WORK_MEM='1GB';"
-
-
 @log_step
 def clean_old_sessions():
     yield """DELETE FROM sessions WHERE lastaccess < extract('epoch' from current_timestamp - interval '12 hours');"""
@@ -328,69 +313,73 @@ def do_maintenance(connstr, cluster=False):
 
     with psycopg2.connect(connstr) as c:
         c.autocommit = True  # Don't implicitly open a transaction
-        with c.cursor() as curs:
-            for statement in sql_prelude():
-                execute(curs, statement)
 
-        with c.cursor() as curs:
+        # Delete old sessions. Zabbix API "logout" call implicitly logs out
+        # all sessions instead of just the current one.
+        with prelude_cursor(c) as curs:
             for statement in clean_old_sessions():
                 execute(curs, statement)
 
         # Create statistics ( let the auto-analyze function analyze later)
-        with c.cursor() as curs:
+        with prelude_cursor(c) as curs:
             for x in create_item_statistics():
                 execute(curs, x)
+
             for table in tables:
                 for x in create_statistics(table=table):
                     execute(curs, x)
 
+        # Step into the future and make tables & indexes
         for date in months_for_year_ahead():
             for table in tables:
                 for x in create_table_partition(
                     table=table, year=date.year, month=date.month
                 ):
-                    with c.cursor() as curs:
+                    with prelude_cursor(c) as curs:
                         execute(curs, x)
 
                 for x in ensure_btree_index(
                     table=table, year=date.year, month=date.month
                 ):
-                    with c.cursor() as curs:
+                    with prelude_cursor(c) as curs:
                         execute(curs, x)
 
                 for x in clean_old_indexes(
                     table=table, year=date.year, month=date.month
                 ):
-                    with c.cursor() as curs:
+                    with prelude_cursor(c) as curs:
                         execute(curs, x)
 
                 for x in ensure_brin_index(
                     table=table, year=date.year, month=date.month
                 ):
-                    with c.cursor() as curs:
+                    with prelude_cursor(c) as curs:
                         execute(curs, x)
 
         for n, date in enumerate(months_for_year_past()):
             previous_month = n == 0
             for table in tables:
+                # Clean out undesired indexes
                 for x in clean_old_indexes(
                     table=table, year=date.year, month=date.month
                 ):
-                    with c.cursor() as curs:
+                    with prelude_cursor(c) as curs:
                         execute(curs, x)
 
+                # Should maintain uses a connection, need to nest our cursor
+                # after this
                 if should_maintain(c, table=table, year=date.year, month=date.month):
                     for x in ensure_brin_index(
                         table=table, year=date.year, month=date.month
                     ):
-                        with c.cursor() as curs:
+                        with prelude_cursor(c) as curs:
                             execute(curs, x)
 
                 if not previous_month:
                     for x in clean_btree_index(
                         table=table, year=date.year, month=date.month
                     ):
-                        with c.cursor() as curs:
+                        with prelude_cursor(c) as curs:
                             execute(curs, x)
 
         if cluster:
@@ -403,19 +392,21 @@ def do_maintenance(connstr, cluster=False):
                         month=date.month,
                         retention=FAST_WINDOW,
                     ):
-                        with c.cursor() as curs:
+                        with prelude_cursor(c) as curs:
                             execute(curs, x)
+
                     # Remove duplicated rows from tables before we cluster them
                     for x in clean_duplicate_items(
                         table=table, year=date.year, month=date.month
                     ):
-                        with c.cursor() as curs:
+                        with prelude_cursor(c) as curs:
                             execute(curs, x)
 
+                    # Cluster the tables
                     for x in cluster_table(
                         table=table, year=date.year, month=date.month
                     ):
-                        with c.cursor() as curs:
+                        with prelude_cursor(c) as curs:
                             execute(curs, x)
 
 
@@ -451,19 +442,18 @@ def do_oneshot_maintenance(connstr):
 
     with psycopg2.connect(connstr) as c:
         c.autocommit = True  # Don't implicitly open a transaction
-        with c.cursor() as curs:
-            for statement in sql_prelude():
-                execute(curs, statement)
-
         # Move config items out
+
         for x in migrate_config_items():
-            with c.cursor() as curs:
+            with prelude_cursor(c) as curs:
                 execute(curs, x)
 
         # Create statistics (let the auto-analyze function analyze later)
-        with c.cursor() as curs:
+        with prelude_cursor(c) as curs:
             for x in create_item_statistics():
                 execute(curs, x)
+
+        with prelude_cursor(c) as curs:
             for table in tables:
                 for x in create_statistics(table=table):
                     execute(curs, x)
@@ -475,7 +465,7 @@ def do_oneshot_maintenance(connstr):
                     for x in oneshot_maintenance_operation(
                         table=table, year=date.year, month=date.month
                     ):
-                        with c.cursor() as curs:
+                        with prelude_cursor(c) as curs:
                             execute(curs, x)
 
 
