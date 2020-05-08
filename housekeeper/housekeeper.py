@@ -318,6 +318,11 @@ def sql_prelude():
         yield "SET WORK_MEM='1GB';"
 
 
+@log_step
+def clean_old_sessions():
+    yield """DELETE FROM sessions WHERE lastaccess < extract('epoch' from current_timestamp - interval '12 hours');"""
+
+
 def do_maintenance(connstr, cluster=False):
     tables = ("history", "history_uint", "history_text", "history_str")
 
@@ -325,6 +330,10 @@ def do_maintenance(connstr, cluster=False):
         c.autocommit = True  # Don't implicitly open a transaction
         with c.cursor() as curs:
             for statement in sql_prelude():
+                execute(curs, statement)
+
+        with c.cursor() as curs:
+            for statement in clean_old_sessions():
                 execute(curs, statement)
 
         # Create statistics ( let the auto-analyze function analyze later)
