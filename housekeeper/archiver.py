@@ -390,8 +390,8 @@ def oneshot_cluster(connstr):
         for date in months_between(to_date=end):
             for table in tables:
                 if should_archive_cluster(conn, table=table, year=date.year, month=date.month):
-                    with prelude_cursor(conn) as curs:
-                        for x in archive_cluster(table=table, year=date.year, month=date.month):
+                    for x in archive_cluster(table=table, year=date.year, month=date.month):
+                        with prelude_cursor(conn) as curs:
                             execute(curs, x)
 
 
@@ -405,8 +405,8 @@ def oneshot_dedupe(connstr):
         for date in months_between(to_date=end):
             for table in tables:
                 if should_archive_cluster(conn, table=table, year=date.year, month=date.month):
-                    with prelude_cursor(conn) as curs:
-                        for x in archive_dedupe(table=table, year=date.year, month=date.month):
+                    for x in archive_dedupe(table=table, year=date.year, month=date.month):
+                        with prelude_cursor(conn) as curs:
                             execute(curs, x)
 
 
@@ -420,8 +420,8 @@ def oneshot_archive(connstr):
 
         for date in months_between(to_date=end):
             for table in tables:
-                with prelude_cursor(conn) as curs:
-                    for x in create_archive_table(table=table, year=date.year, month=date.month):
+                for x in create_archive_table(table=table, year=date.year, month=date.month):
+                    with prelude_cursor(conn) as curs:
                         execute(curs, x)
 
 
