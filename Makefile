@@ -16,7 +16,7 @@ wheel:
 
 .PHONY: check
 check:
-	$(Q)python3 setup.py flake8; $(RECORD_TEST_STATUS) \
+	$(Q)flake8 housekeeper; $(RECORD_TEST_STATUS) \
 	mypy .; $(RECORD_TEST_STATUS) \
 	$(RETURN_TEST_STATUS)
 

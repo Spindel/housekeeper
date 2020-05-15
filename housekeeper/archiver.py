@@ -292,9 +292,7 @@ def swap_live_and_archive_tables(table="history", year=2011, month=12):
         detach_partition(table=table, year=year, month=month),
         create_foreign_table(table=table, year=year, month=month),
     )
-    yield "BEGIN TRANSACTION;"
     yield from sql_if_tables_exist(tables=[original_tablename], query_iter=query_iter)
-    yield "COMMIT;"
 
 
 def migrate_table_to_archive(table="history", year=2011, month=12):
@@ -310,9 +308,7 @@ def migrate_table_to_archive(table="history", year=2011, month=12):
                 INSERT INTO {remote_tablename} SELECT * FROM moved_rows ORDER BY itemid, clock;""")
         yield f"DROP TABLE IF EXISTS {original_tablename};"
 
-    yield "BEGIN TRANSACTION;"
     yield from sql_if_tables_exist(tables=tables, query_iter=query_iter())
-    yield "COMMIT;"
 
 
 def archive_maintenance(connstr):
@@ -323,14 +319,14 @@ def archive_maintenance(connstr):
         with log_state(stage="archive_maintenance"):
             for date in months_for_year_ahead():
                 for table in tables:
-                    with prelude_cursor(c) as curs:
-                        for x in create_archive_table(table=table, year=date.year, month=date.month):
+                    for x in create_archive_table(table=table, year=date.year, month=date.month):
+                        with prelude_cursor(c) as curs:
                             execute(curs, x)
 
             for date in months_for_year_past():
                 for table in tables:
-                    with prelude_cursor(c) as curs:
-                        for x in create_archive_table(table=table, year=date.year, month=date.month):
+                    for x in create_archive_table(table=table, year=date.year, month=date.month):
+                        with prelude_cursor(c) as curs:
                             execute(curs, x)
 
 
@@ -353,19 +349,17 @@ def migrate_data(source_connstr, dest_connstr):
                 # Should_maintain checks that the table exists first
                 if should_maintain(conn=source, table=table, year=date.year, month=date.month):
                     # First clean up old (deleted) items
-                    with prelude_cursor(source) as curs:
-                        for x in clean_old_items(table=table, year=date.year, month=date.month):
+                    for x in clean_old_items(table=table, year=date.year, month=date.month):
+                        with prelude_cursor(source) as curs:
                             execute(curs, x)
                     # Then clean out expired items (should be deleted)
-                    with prelude_cursor(source) as curs:
-                        for x in clean_expired_items(
-                            table=table, year=date.year, month=date.month, retention=retention
-                        ):
+                    for x in clean_expired_items(table=table, year=date.year, month=date.month, retention=retention):
+                        with prelude_cursor(source) as curs:
                             execute(curs, x)
 
                     # Then clean up duplicate data ( warning, slow)
-                    with prelude_cursor(source) as curs:
-                        for x in clean_duplicate_items(table=table, year=date.year, month=date.month):
+                    for x in clean_duplicate_items(table=table, year=date.year, month=date.month):
+                        with prelude_cursor(source) as curs:
                             execute(curs, x)
 
                 with prelude_cursor(source) as curs:

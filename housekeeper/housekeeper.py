@@ -258,22 +258,30 @@ def cluster_table(table="history", year=2011, month=12):
     temp_table = f"{tablename}_temp"
 
     with log_state(cluster_table=tablename, cluster_temp_table=temp_table):
-        yield "BEGIN TRANSACTION;"
-        yield from detach_partition(table=table, year=year, month=month)
-        yield f"CREATE TABLE IF NOT EXISTS {temp_table} PARTITION OF {table} for values from ({start}) to ({stop});"
-        yield "COMMIT;"
+        def query_detach():
+            yield "BEGIN TRANSACTION;"
+            yield from detach_partition(table=table, year=year, month=month)
+            yield f"CREATE TABLE IF NOT EXISTS {temp_table} PARTITION OF {table} for values from ({start}) to ({stop});"
+            yield "COMMIT;"
+
+        yield "\n".join(query_detach())
 
         yield from do_cluster_operation(table=table, year=year, month=month)
 
-        yield "BEGIN TRANSACTION;"
-        yield f"ALTER TABLE {table} DETACH PARTITION {temp_table};"
-        yield from attach_partition(table=table, year=year, month=month)
-        yield "COMMIT;"
+        def query_swap():
+            yield "BEGIN TRANSACTION;"
+            yield f"ALTER TABLE {table} DETACH PARTITION {temp_table};"
+            yield from attach_partition(table=table, year=year, month=month)
+            yield "COMMIT;"
+        yield "\n".join(query_swap())
 
-        yield "BEGIN TRANSACTION;"
-        yield f"INSERT INTO {tablename} SELECT * from {temp_table} order by itemid,clock;"
-        yield f"DROP TABLE {temp_table};"
-        yield "COMMIT;"
+        def query_cleanup():
+            yield "BEGIN TRANSACTION;"
+            yield f"INSERT INTO {tablename} SELECT * from {temp_table} order by itemid,clock;"
+            yield f"DROP TABLE {temp_table};"
+            yield "COMMIT;"
+
+        yield "\n".join(query_cleanup())
 
     with log_state(cluster_table=tablename):
         yield from drop_check_constraint(table=table, year=year, month=month)
@@ -281,21 +289,23 @@ def cluster_table(table="history", year=2011, month=12):
 
 @log_step
 def migrate_config_items():
-    yield "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;"
-    yield (
-        "INSERT INTO history_text (id, ns, itemid, clock, value) "
-        "  SELECT 0, 0, itemid, clock, value FROM history_str WHERE itemid IN "
-        " (SELECT itemid FROM items WHERE name LIKE 'mytemp.internal.conf%' AND value_type=1);"
-    )
+    def query():
+        yield "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;"
+        yield (
+            "INSERT INTO history_text (id, ns, itemid, clock, value) "
+            "  SELECT 0, 0, itemid, clock, value FROM history_str WHERE itemid IN "
+            " (SELECT itemid FROM items WHERE name LIKE 'mytemp.internal.conf%' AND value_type=1);"
+        )
 
-    yield "UPDATE items SET value_type=4 WHERE name LIKE 'mytemp.internal.conf%';"
-    yield "DELETE FROM items WHERE name LIKE 'mytemp.internal.change%';"
-    yield (
-        "DELETE FROM history_str WHERE itemid IN "
-        "  ( SELECT itemid FROM items "
-        "     WHERE name LIKE 'mytemp.internal.conf%' AND value_type=4);"
-    )
-    yield "COMMIT;"
+        yield "UPDATE items SET value_type=4 WHERE name LIKE 'mytemp.internal.conf%';"
+        yield "DELETE FROM items WHERE name LIKE 'mytemp.internal.change%';"
+        yield (
+            "DELETE FROM history_str WHERE itemid IN "
+            "  ( SELECT itemid FROM items "
+            "     WHERE name LIKE 'mytemp.internal.conf%' AND value_type=4);"
+        )
+        yield "COMMIT;"
+    yield "\n".join(query())
 
 
 def should_maintain(conn, table="history", year=2112, month=12):
@@ -444,8 +454,8 @@ def do_oneshot_maintenance(connstr):
         c.autocommit = True  # Don't implicitly open a transaction
         # Move config items out
 
-        for x in migrate_config_items():
-            with prelude_cursor(c) as curs:
+        with prelude_cursor(c) as curs:
+            for x in migrate_config_items():
                 execute(curs, x)
 
         # Create statistics (let the auto-analyze function analyze later)
@@ -453,9 +463,9 @@ def do_oneshot_maintenance(connstr):
             for x in create_item_statistics():
                 execute(curs, x)
 
-        with prelude_cursor(c) as curs:
-            for table in tables:
-                for x in create_statistics(table=table):
+        for table in tables:
+            for x in create_statistics(table=table):
+                with prelude_cursor(c) as curs:
                     execute(curs, x)
 
         # And for all tables, do complete maintenance

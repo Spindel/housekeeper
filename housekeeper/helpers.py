@@ -9,6 +9,7 @@ import structlog
 
 
 from .logs import log_state
+
 _log = structlog.get_logger(__name__)
 
 
@@ -146,10 +147,12 @@ def sql_if_tables_exist(tables, query_iter):
     query_string = "\n".join(x for x in query_iter)
     yield dedent(
         f"""
+        BEGIN TRANSACTION;
         DO $$ BEGIN
         IF (SELECT COUNT(*)={count} FROM information_schema.tables WHERE table_name IN ({tables_string})) THEN
         {query_string}
-        END IF; END $$;"""
+        END IF; END $$;
+        COMMIT;"""
     )
 
 
