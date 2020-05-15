@@ -176,7 +176,7 @@ def clean_expired_items(table="history", year=2012, month=12,
     start_time, end_time = get_start_and_stop(year=year, month=month)
     for start in range(start_time, end_time, batch_seconds):
         stop = start + batch_seconds
-        with log_state(step="clean_expired_items", where="table", clean_start=start, clean_stop=stop):
+        with log_state(step="clean_expired_items", where=table, clean_start=start, clean_stop=stop):
             # extract('epoch' from timestamp)  Gets the unix timestamp
             # interval '14 days'  # is a range of 14-days
             # item.history is in days
