@@ -1,10 +1,14 @@
 import os
 import time
 
+from contextlib import contextmanager
 from textwrap import dedent
 from datetime import timedelta, date
 
 import structlog
+
+
+from .logs import log_state
 
 _log = structlog.get_logger(__name__)
 
@@ -12,6 +16,44 @@ _log = structlog.get_logger(__name__)
 DBCONFIG = "/etc/zabbix/zabbix.conf.d/database.conf"
 EPOCH = date(1970, 1, 1)
 MONTHISH = timedelta(days=31)
+
+
+def get_role():
+    """Return a suitable name for the SET ROLE operation."""
+    rolename = os.environ.get("HOUSEKEEPER_ROLE", "")
+    rolename = rolename.strip()
+    if not rolename:
+        raise ValueError("Environment variable HOUSEKEEPER_ROLE must be set.")
+    return rolename
+
+
+def sql_prelude():
+    with log_state(step="sql_prelude"):
+        role = get_role()
+        yield f"""SET ROLE "{role}";"""
+        yield "SET WORK_MEM='1GB';"
+
+
+def log_and_reset_notices(conn):
+    """Log the notifications."""
+    log = _log.bind(
+        dbhost=conn.info.host, dbname=conn.info.dbname, dbuser=conn.info.user
+    )
+    if not conn.notices:
+        return
+
+    for n, msg in enumerate(conn.notices):
+        log.info("DB notice", notice_no=n, notice=msg)
+    conn.notices.clear()
+
+
+@contextmanager
+def prelude_cursor(conn):
+    with conn.cursor() as curs:
+        for prelude in sql_prelude():
+            execute(curs, prelude)
+        yield curs
+    log_and_reset_notices(conn)
 
 
 def execute(cursor, query):
@@ -105,10 +147,12 @@ def sql_if_tables_exist(tables, query_iter):
     query_string = "\n".join(x for x in query_iter)
     yield dedent(
         f"""
+        BEGIN TRANSACTION;
         DO $$ BEGIN
         IF (SELECT COUNT(*)={count} FROM information_schema.tables WHERE table_name IN ({tables_string})) THEN
         {query_string}
-        END IF; END $$;"""
+        END IF; END $$;
+        COMMIT;"""
     )
 
 

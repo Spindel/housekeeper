@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import sys
-import os
 import datetime
 
 import psycopg2
@@ -8,10 +7,12 @@ import psycopg2
 from .helpers import (
     connstring,
     execute,
+    prelude_cursor,
     get_constraint_name,
     get_index_name,
     get_table_name,
     table_exists,
+    get_role,
 )
 
 from .times import (
@@ -175,7 +176,7 @@ def clean_expired_items(table="history", year=2012, month=12,
     start_time, end_time = get_start_and_stop(year=year, month=month)
     for start in range(start_time, end_time, batch_seconds):
         stop = start + batch_seconds
-        with log_state(step="clean_expired_items", where="table", clean_start=start, clean_stop=stop):
+        with log_state(step="clean_expired_items", where=table, clean_start=start, clean_stop=stop):
             # extract('epoch' from timestamp)  Gets the unix timestamp
             # interval '14 days'  # is a range of 14-days
             # item.history is in days
@@ -257,22 +258,30 @@ def cluster_table(table="history", year=2011, month=12):
     temp_table = f"{tablename}_temp"
 
     with log_state(cluster_table=tablename, cluster_temp_table=temp_table):
-        yield "BEGIN TRANSACTION;"
-        yield from detach_partition(table=table, year=year, month=month)
-        yield f"CREATE TABLE IF NOT EXISTS {temp_table} PARTITION OF {table} for values from ({start}) to ({stop});"
-        yield "COMMIT;"
+        def query_detach():
+            yield "BEGIN TRANSACTION;"
+            yield from detach_partition(table=table, year=year, month=month)
+            yield f"CREATE TABLE IF NOT EXISTS {temp_table} PARTITION OF {table} for values from ({start}) to ({stop});"
+            yield "COMMIT;"
+
+        yield "\n".join(query_detach())
 
         yield from do_cluster_operation(table=table, year=year, month=month)
 
-        yield "BEGIN TRANSACTION;"
-        yield f"ALTER TABLE {table} DETACH PARTITION {temp_table};"
-        yield from attach_partition(table=table, year=year, month=month)
-        yield "COMMIT;"
+        def query_swap():
+            yield "BEGIN TRANSACTION;"
+            yield f"ALTER TABLE {table} DETACH PARTITION {temp_table};"
+            yield from attach_partition(table=table, year=year, month=month)
+            yield "COMMIT;"
+        yield "\n".join(query_swap())
 
-        yield "BEGIN TRANSACTION;"
-        yield f"INSERT INTO {tablename} SELECT * from {temp_table} order by itemid,clock;"
-        yield f"DROP TABLE {temp_table};"
-        yield "COMMIT;"
+        def query_cleanup():
+            yield "BEGIN TRANSACTION;"
+            yield f"INSERT INTO {tablename} SELECT * from {temp_table} order by itemid,clock;"
+            yield f"DROP TABLE {temp_table};"
+            yield "COMMIT;"
+
+        yield "\n".join(query_cleanup())
 
     with log_state(cluster_table=tablename):
         yield from drop_check_constraint(table=table, year=year, month=month)
@@ -280,42 +289,28 @@ def cluster_table(table="history", year=2011, month=12):
 
 @log_step
 def migrate_config_items():
-    yield "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;"
-    yield (
-        "INSERT INTO history_text (id, ns, itemid, clock, value) "
-        "  SELECT 0, 0, itemid, clock, value FROM history_str WHERE itemid IN "
-        " (SELECT itemid FROM items WHERE name LIKE 'mytemp.internal.conf%' AND value_type=1);"
-    )
+    def query():
+        yield "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;"
+        yield (
+            "INSERT INTO history_text (id, ns, itemid, clock, value) "
+            "  SELECT 0, 0, itemid, clock, value FROM history_str WHERE itemid IN "
+            " (SELECT itemid FROM items WHERE name LIKE 'mytemp.internal.conf%' AND value_type=1);"
+        )
 
-    yield "UPDATE items SET value_type=4 WHERE name LIKE 'mytemp.internal.conf%';"
-    yield "DELETE FROM items WHERE name LIKE 'mytemp.internal.change%';"
-    yield (
-        "DELETE FROM history_str WHERE itemid IN "
-        "  ( SELECT itemid FROM items "
-        "     WHERE name LIKE 'mytemp.internal.conf%' AND value_type=4);"
-    )
-    yield "COMMIT;"
+        yield "UPDATE items SET value_type=4 WHERE name LIKE 'mytemp.internal.conf%';"
+        yield "DELETE FROM items WHERE name LIKE 'mytemp.internal.change%';"
+        yield (
+            "DELETE FROM history_str WHERE itemid IN "
+            "  ( SELECT itemid FROM items "
+            "     WHERE name LIKE 'mytemp.internal.conf%' AND value_type=4);"
+        )
+        yield "COMMIT;"
+    yield "\n".join(query())
 
 
 def should_maintain(conn, table="history", year=2112, month=12):
     tbname = get_table_name(table=table, year=year, month=month)
     return table_exists(conn, tbname)
-
-
-def get_role():
-    """Return a suitable name for the SET ROLE operation."""
-    rolename = os.environ.get("HOUSEKEEPER_ROLE", "")
-    rolename = rolename.strip()
-    if not rolename:
-        raise ValueError("Environment variable HOUSEKEEPER_ROLE must be set.")
-    return rolename
-
-
-def sql_prelude():
-    with log_state(step="sql_prelude"):
-        role = get_role()
-        yield f"""SET ROLE "{role}";"""
-        yield "SET WORK_MEM='1GB';"
 
 
 @log_step
@@ -328,69 +323,73 @@ def do_maintenance(connstr, cluster=False):
 
     with psycopg2.connect(connstr) as c:
         c.autocommit = True  # Don't implicitly open a transaction
-        with c.cursor() as curs:
-            for statement in sql_prelude():
-                execute(curs, statement)
 
-        with c.cursor() as curs:
+        # Delete old sessions. Zabbix API "logout" call implicitly logs out
+        # all sessions instead of just the current one.
+        with prelude_cursor(c) as curs:
             for statement in clean_old_sessions():
                 execute(curs, statement)
 
         # Create statistics ( let the auto-analyze function analyze later)
-        with c.cursor() as curs:
+        with prelude_cursor(c) as curs:
             for x in create_item_statistics():
                 execute(curs, x)
+
             for table in tables:
                 for x in create_statistics(table=table):
                     execute(curs, x)
 
+        # Step into the future and make tables & indexes
         for date in months_for_year_ahead():
             for table in tables:
                 for x in create_table_partition(
                     table=table, year=date.year, month=date.month
                 ):
-                    with c.cursor() as curs:
+                    with prelude_cursor(c) as curs:
                         execute(curs, x)
 
                 for x in ensure_btree_index(
                     table=table, year=date.year, month=date.month
                 ):
-                    with c.cursor() as curs:
+                    with prelude_cursor(c) as curs:
                         execute(curs, x)
 
                 for x in clean_old_indexes(
                     table=table, year=date.year, month=date.month
                 ):
-                    with c.cursor() as curs:
+                    with prelude_cursor(c) as curs:
                         execute(curs, x)
 
                 for x in ensure_brin_index(
                     table=table, year=date.year, month=date.month
                 ):
-                    with c.cursor() as curs:
+                    with prelude_cursor(c) as curs:
                         execute(curs, x)
 
         for n, date in enumerate(months_for_year_past()):
             previous_month = n == 0
             for table in tables:
+                # Clean out undesired indexes
                 for x in clean_old_indexes(
                     table=table, year=date.year, month=date.month
                 ):
-                    with c.cursor() as curs:
+                    with prelude_cursor(c) as curs:
                         execute(curs, x)
 
+                # Should maintain uses a connection, need to nest our cursor
+                # after this
                 if should_maintain(c, table=table, year=date.year, month=date.month):
                     for x in ensure_brin_index(
                         table=table, year=date.year, month=date.month
                     ):
-                        with c.cursor() as curs:
+                        with prelude_cursor(c) as curs:
                             execute(curs, x)
 
                 if not previous_month:
                     for x in clean_btree_index(
                         table=table, year=date.year, month=date.month
                     ):
-                        with c.cursor() as curs:
+                        with prelude_cursor(c) as curs:
                             execute(curs, x)
 
         if cluster:
@@ -403,19 +402,21 @@ def do_maintenance(connstr, cluster=False):
                         month=date.month,
                         retention=FAST_WINDOW,
                     ):
-                        with c.cursor() as curs:
+                        with prelude_cursor(c) as curs:
                             execute(curs, x)
+
                     # Remove duplicated rows from tables before we cluster them
                     for x in clean_duplicate_items(
                         table=table, year=date.year, month=date.month
                     ):
-                        with c.cursor() as curs:
+                        with prelude_cursor(c) as curs:
                             execute(curs, x)
 
+                    # Cluster the tables
                     for x in cluster_table(
                         table=table, year=date.year, month=date.month
                     ):
-                        with c.cursor() as curs:
+                        with prelude_cursor(c) as curs:
                             execute(curs, x)
 
 
@@ -451,21 +452,20 @@ def do_oneshot_maintenance(connstr):
 
     with psycopg2.connect(connstr) as c:
         c.autocommit = True  # Don't implicitly open a transaction
-        with c.cursor() as curs:
-            for statement in sql_prelude():
-                execute(curs, statement)
-
         # Move config items out
-        for x in migrate_config_items():
-            with c.cursor() as curs:
+
+        with prelude_cursor(c) as curs:
+            for x in migrate_config_items():
                 execute(curs, x)
 
         # Create statistics (let the auto-analyze function analyze later)
-        with c.cursor() as curs:
+        with prelude_cursor(c) as curs:
             for x in create_item_statistics():
                 execute(curs, x)
-            for table in tables:
-                for x in create_statistics(table=table):
+
+        for table in tables:
+            for x in create_statistics(table=table):
+                with prelude_cursor(c) as curs:
                     execute(curs, x)
 
         # And for all tables, do complete maintenance
@@ -475,7 +475,7 @@ def do_oneshot_maintenance(connstr):
                     for x in oneshot_maintenance_operation(
                         table=table, year=date.year, month=date.month
                     ):
-                        with c.cursor() as curs:
+                        with prelude_cursor(c) as curs:
                             execute(curs, x)
 
 
