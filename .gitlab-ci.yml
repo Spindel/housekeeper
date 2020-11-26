@@ -1,30 +1,66 @@
+%YAML 1.1
+---
+# Keep the includes first to illustrate that definitions that everything that
+# follows override included definitions.
+include:
+  # Only run for branches and tags
+  # https://docs.gitlab.com/ee/ci/yaml/#workflowrules-templates
+  - template: 'Workflows/MergeRequest-Pipelines.gitlab-ci.yml'
+  # See https://gitlab.com/gitlab-org/gitlab/tree/master/lib/gitlab/ci/templates
+  #   - file: /templates/container-build.yaml
+  #     project: ModioAB/base-image
+  #     ref: master
+
+
+default:
+  # Allow running pipelines to be cancelled if made redundant
+  interruptible: true
+  image: registry.gitlab.com/modioab/base-image/fedora-${FEDORA_ROOT_RELEASE}/build:master
+
+  # FIXME: The following defaults should be a template
+
+  # Retry jobs when parts of the CI system itself fails
+  # https://docs.gitlab.com/ee/ci/yaml/#retry
+  retry:
+    max: 2
+    when:
+      - api_failure
+      - runner_system_failure
+      - scheduler_failure
+  tags:
+    - x86_64
+
+variables:
+  # Podman defaults to OCI images, since 2019-02-15+ onwards, gitlab registry
+  # fails to work properly with the default `oci` images.
+  # TODO: Test & bug-report this
+  BUILDAH_FORMAT: docker
+  FEDORA_ROOT_RELEASE: 33
+
 stages:
-    - test
-    - publish
+  - test
+  - publish
 
 test:
-    image: registry.gitlab.com/modioab/base-image/fedora-31/build:master
-    stage: test
-    when: always
-    script:
-        - pip3 install -r requirements-dev.txt
-        - pip3 install .
-        - pytest .
-        - mypy .
-        - flake8 .
-    coverage: '/^TOTAL.+?(\d+\%)$/'
-    artifacts:
-        reports:
-            junit: 
-                - testreport.xml
-                - mypyreport.xml
+  stage: test
+  when: always
+  script:
+    - pip3 install -r requirements-dev.txt
+    - pip3 install .
+    - pytest .
+    - mypy .
+    - flake8 .
+  coverage: '/^TOTAL.+?(\d+\%)$/'
+  artifacts:
+    reports:
+      junit:
+        - testreport.xml
+        - mypyreport.xml
 
 container:
-    image: registry.gitlab.com/modioab/base-image/fedora-31/build:master
-    stage: publish
-    tags:
-        - x86_64
-    script:
-        - make -f build.mk login
-        - pip3 install wheel
-        - make build-publish
+  stage: publish
+  script:
+    - make -f build.mk login
+    - pip3 install wheel
+    - make build-publish
+...
