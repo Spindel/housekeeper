@@ -1,49 +1,26 @@
+# vim: expandtab:ts=8:sw=2:tw=80:fdm=marker:ft=yaml:
 %YAML 1.1
 ---
-# Keep the includes first to illustrate that definitions that everything that
-# follows override included definitions.
 include:
   # Only run for branches and tags
   # https://docs.gitlab.com/ee/ci/yaml/#workflowrules-templates
   - template: 'Workflows/MergeRequest-Pipelines.gitlab-ci.yml'
-  # See https://gitlab.com/gitlab-org/gitlab/tree/master/lib/gitlab/ci/templates
-  #   - file: /templates/container-build.yaml
-  #     project: ModioAB/base-image
-  #     ref: master
+  - project: ModioAB/CI
+    file: /ci/default.yml
+    ref: main
+  - project: ModioAB/CI
+    file: /ci/container.yml
 
 
-default:
-  # Allow running pipelines to be cancelled if made redundant
-  interruptible: true
-  image: registry.gitlab.com/modioab/base-image/fedora-${FEDORA_ROOT_RELEASE}/build:master
+container:build:
+  extends: .container:build
+  before_script:
+    - pip3 install wheel
 
-  # FIXME: The following defaults should be a template
-
-  # Retry jobs when parts of the CI system itself fails
-  # https://docs.gitlab.com/ee/ci/yaml/#retry
-  retry:
-    max: 2
-    when:
-      - api_failure
-      - runner_system_failure
-      - scheduler_failure
-  tags:
-    - x86_64
-
-variables:
-  # Podman defaults to OCI images, since 2019-02-15+ onwards, gitlab registry
-  # fails to work properly with the default `oci` images.
-  # TODO: Test & bug-report this
-  BUILDAH_FORMAT: docker
-  FEDORA_ROOT_RELEASE: 33
-
-stages:
-  - test
-  - publish
 
 test:
   stage: test
-  when: always
+  needs: []
   script:
     - pip3 install -r requirements-dev.txt
     - pip3 install .
@@ -57,10 +34,7 @@ test:
         - testreport.xml
         - mypyreport.xml
 
-container:
-  stage: publish
-  script:
-    - make -f build.mk login
-    - pip3 install wheel
-    - make build-publish
+
+container:publish:
+  extends: .container:publish
 ...
