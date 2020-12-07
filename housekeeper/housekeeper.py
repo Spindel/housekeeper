@@ -13,6 +13,7 @@ from .helpers import (
     get_table_name,
     table_exists,
     get_role,
+    zabbix_vers,
 )
 
 from .times import (
@@ -291,11 +292,18 @@ def cluster_table(table="history", year=2011, month=12):
 def migrate_config_items():
     def query():
         yield "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;"
-        yield (
-            "INSERT INTO history_text (id, ns, itemid, clock, value) "
-            "  SELECT 0, 0, itemid, clock, value FROM history_str WHERE itemid IN "
-            " (SELECT itemid FROM items WHERE name LIKE 'mytemp.internal.conf%' AND value_type=1);"
-        )
+        if zabbix_vers() < 3200:
+            yield (
+                "INSERT INTO history_text (id, ns, itemid, clock, value) "
+                "  SELECT 0, 0, itemid, clock, value FROM history_str WHERE itemid IN "
+                " (SELECT itemid FROM items WHERE name LIKE 'mytemp.internal.conf%' AND value_type=1);"
+            )
+        else:
+            yield (
+                "INSERT INTO history_text (ns, itemid, clock, value) "
+                "  SELECT 0, itemid, clock, value FROM history_str WHERE itemid IN "
+                " (SELECT itemid FROM items WHERE name LIKE 'mytemp.internal.conf%' AND value_type=1);"
+            )
 
         yield "UPDATE items SET value_type=4 WHERE name LIKE 'mytemp.internal.conf%';"
         yield "DELETE FROM items WHERE name LIKE 'mytemp.internal.change%';"

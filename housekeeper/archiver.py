@@ -52,20 +52,32 @@ CREATE_ROOT = {
                           value NUMERIC(16,4) NOT NULL,
                           ns INTEGER NOT NULL);""",
 
-    "history_text": """CREATE TABLE IF NOT EXISTS {tablename} (
-                          id BIGINT NOT NULL,
-                          itemid BIGINT NOT NULL,
-                          clock INTEGER NOT NULL CHECK (clock >= {start} AND clock < {stop}),
-                          value TEXT NOT NULL,
-                          ns INTEGER NOT NULL
-                    );""",
-
     "history_uint": """CREATE TABLE IF NOT EXISTS {tablename} (
                           itemid BIGINT NOT NULL,
                           clock INTEGER NOT NULL CHECK (clock >= {start} AND clock < {stop}),
                           value NUMERIC(20,0) NOT NULL,
                           ns INTEGER NOT NULL);""",
 }
+
+if zabbix_vers() < 3200:
+    CREATE_ROOT["history_text"] =  """CREATE TABLE IF NOT EXISTS {tablename} (
+                              id BIGINT NOT NULL,
+                              itemid BIGINT NOT NULL,
+                              clock INTEGER NOT NULL CHECK (clock >= {start} AND clock < {stop}),
+                              value TEXT NOT NULL,
+                              ns INTEGER NOT NULL
+                        );"""
+
+
+else:
+    CREATE_ROOT["history_text"] =  """CREATE TABLE IF NOT EXISTS {tablename} (
+                              itemid BIGINT NOT NULL,
+                              clock INTEGER NOT NULL CHECK (clock >= {start} AND clock < {stop}),
+                              value TEXT NOT NULL,
+                              ns INTEGER NOT NULL
+                        );"""
+
+
 
 FOREIGN_NAMES = {
     "history": "archive",

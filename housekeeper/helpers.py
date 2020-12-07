@@ -18,6 +18,15 @@ EPOCH = date(1970, 1, 1)
 MONTHISH = timedelta(days=31)
 
 
+def zabbix_vers():
+    """Version check of zabbix. 3000  = 3.0.0"""
+    zabbix = os.environ.get("HOUSEKEEPER_ZABBIX", "3000")
+    zabbix = zabbix.strip()
+    if not zabbix:
+        zabbix = 3000
+    zabbix = int(zabbix)
+    return zabbix
+
 def get_role():
     """Return a suitable name for the SET ROLE operation."""
     rolename = os.environ.get("HOUSEKEEPER_ROLE", "")
