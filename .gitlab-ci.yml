@@ -6,10 +6,10 @@ include:
   # https://docs.gitlab.com/ee/ci/yaml/#workflowrules-templates
   - template: 'Workflows/MergeRequest-Pipelines.gitlab-ci.yml'
   - project: ModioAB/CI
-    file: /ci/default.yml
     ref: main
-  - project: ModioAB/CI
-    file: /ci/container.yml
+    file:
+      - /ci/default.yml
+      - /ci/container.yml
 
 
 container:build:
