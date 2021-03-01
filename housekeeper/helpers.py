@@ -113,6 +113,10 @@ def connstring(filename=DBCONFIG):
     return output % inputs
 
 
+def housekeeper_connstring():
+    return connstring()
+
+
 def archive_connstring(filename=DBCONFIG):
     dbname, dbuser, dbhost, dbport, dbpass = load_connection_config(filename=filename)
     output = (
