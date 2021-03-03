@@ -69,63 +69,32 @@ def execute(cursor, query):
     return result
 
 
-def load_connection_config(filename=DBCONFIG):
-    if not os.path.isfile(filename):
-        raise SystemExit(f"No database config in {filename}")
-    # File looks like
-    """
-    # DB settings\n
-    DBHost=db1.modio.dcl1.synotio.net
-    DBName=moodio.se
-    DBUser=moodio.se
-    DBPassword=sassabrassa booh
-    DBPort=5432
-    """
-
-    dbhost = "localhost"
-    dbname = "zabbix"
-    dbuser = "zabbix"
-    dbport = "5432"
-    dbpass = ""
-
-    with open(filename) as f:
-        for line in f.readlines():
-            if line.startswith("DBHost="):
-                dbhost = line.split("=", 1)[1].strip()
-            if line.startswith("DBName="):
-                dbname = line.split("=", 1)[1].strip()
-            if line.startswith("DBUser="):
-                dbuser = line.split("=", 1)[1].strip()
-            if line.startswith("DBPort="):
-                dbport = line.split("=", 1)[1].strip()
-            if line.startswith("DBPassword="):
-                dbpass = line.split("=", 1)[1].strip()
-
-    return (dbname, dbuser, dbhost, dbport, dbpass)
+def housekeeper_connstring():
+    return env_connstring(prefix="HOUSEKEEPER")
 
 
-def connstring(filename=DBCONFIG):
-    inputs = load_connection_config(filename=filename)
+def archive_connstring():
+    return env_connstring(prefix="ARCHIVE")
+
+
+def env_connstring(filename=DBCONFIG, prefix="MOOMIN"):
+    """Load a connstring from various places"""
+    dbsslmode = os.environ.get(f"{prefix}_PGSSLMODE", "prefer")
+    try:
+        dbname = os.environ[f"{prefix}_PGDATABASE"]
+        dbhost = os.environ[f"{prefix}_PGHOST"]
+        dbport = os.environ[f"{prefix}_PGPORT"]
+        dbuser = os.environ[f"{prefix}_PGUSER"]
+        dbpass = os.environ[f"{prefix}_PGPASSWORD"]
+    except KeyError as ex:
+        msg = str(ex)
+        raise SystemExit(f"Missing env var {msg}") from ex
+
     output = (
-        "dbname='%s' user='%s' host='%s' port='%s' password='%s'"
-        " keepalives=1 keepalives_idle=15 keepalives_interval=15 keepalives_count=15"
+        f"host='{dbhost}' port='{dbport}' dbname='{dbname}' user='{dbuser}' password='{dbpass}' sslmode='{dbsslmode}'"
+        f" keepalives=1 keepalives_idle=15 keepalives_interval=15 keepalives_count=15"
     )
-    return output % inputs
-
-
-def archive_connstring(filename=DBCONFIG):
-    dbname, dbuser, dbhost, dbport, dbpass = load_connection_config(filename=filename)
-    output = (
-        "host='%s' port='%s' dbname='%s' user='%s' password='%s' sslmode='%s'"
-        " keepalives=1 keepalives_idle=15 keepalives_interval=15 keepalives_count=15"
-    )
-    dbname = os.environ.get("ARCHIVE_PGDATABASE", dbname)
-    dbhost = os.environ.get("ARCHIVE_PGHOST", dbhost)
-    dbport = os.environ.get("ARCHIVE_PGPORT", dbport)
-    dbuser = os.environ.get("ARCHIVE_PGUSER", dbuser)
-    dbpassword = os.environ.get("ARCHIVE_PGPASSWORD", dbpass)
-    dbsslmode = os.environ.get("ARCHIVE_PGSSLMODE", "prefer")
-    return output % (dbhost, dbport, dbname, dbuser, dbpassword, dbsslmode)
+    return output
 
 
 def get_table_name(table="history", year=2011, month=12):

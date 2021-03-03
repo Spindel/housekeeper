@@ -21,7 +21,7 @@ from .times import (
 from .helpers import (
     get_table_name,
     archive_connstring,
-    connstring,
+    housekeeper_connstring,
     execute,
     sql_if_tables_exist,
     table_exists,
@@ -470,7 +470,7 @@ def main():
     elif command == "cron":
         archive_connstr = archive_connstring()
         archive_maintenance(connstr=archive_connstr)
-        source_connstr = connstring()
+        source_connstr = housekeeper_connstring()
         migrate_data(source_connstr=source_connstr,
                      dest_connstr=archive_connstr)
     print("/* All operations succesful! */")

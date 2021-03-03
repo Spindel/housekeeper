@@ -5,7 +5,7 @@ import datetime
 import psycopg2
 
 from .helpers import (
-    connstring,
+    housekeeper_connstring,
     execute,
     prelude_cursor,
     get_constraint_name,
@@ -491,7 +491,7 @@ def role_msg():
 
 def main():
     role_msg()
-    connstr = connstring()
+    connstr = housekeeper_connstring()
 
     command = "help"
     if len(sys.argv) == 1:
