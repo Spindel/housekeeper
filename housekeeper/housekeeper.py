@@ -33,8 +33,7 @@ def log_step(func):
     It's important to not use this one on functions that yield from other SQL
     generating functions, those need to set up their own logging.
 
-    This one does the final step.
-    """
+    This one does the final step."""
 
     def wrapper(*args, **kws):
         with log_state(step=func.__name__):
@@ -165,6 +164,7 @@ AND  T1.ns = T2.ns;"""
 
 def clean_expired_items(table="history", year=2012, month=12,
                         retention=FAST_WINDOW, batch_seconds=86399):
+    return False
     """Generates a DELETE statement on the table to clean out "old" data.
 
     Old is defined as the zabbix way, "items.history" is in days, and compared to
@@ -182,8 +182,11 @@ def clean_expired_items(table="history", year=2012, month=12,
             # item.history is in days
             yield f"""DELETE FROM {tablename} T1
 WHERE T1.clock BETWEEN {start} AND {stop}
-AND T1.itemid IN (SELECT itemid FROM items WHERE items.history < {retention})
-AND T1.clock < extract('epoch' from current_timestamp - interval '{retention} days');"""
+AND T1.itemid IN (
+  SELECT itemid FROM items WHERE
+     (items.history::INTERVAL > INTERVAL '1d') AND
+     (items.history::INTERVAL < (INTERVAL '1d' * {retention}))
+AND T1.clock < extract('epoch' from current_timestamp - INTERVAL '{retention} days');"""
 
 
 @log_step
@@ -395,16 +398,23 @@ def do_maintenance(connstr, cluster=False):
         if cluster:
             for date in gen_last_month():
                 for table in tables:
-                    # Clean out expired items before we remove duplicates
-                    for x in clean_expired_items(
-                        table=table,
-                        year=date.year,
-                        month=date.month,
-                        retention=FAST_WINDOW,
-                    ):
-                        with prelude_cursor(c) as curs:
-                            execute(curs, x)
 
+                    # 2021-05, Spindel
+                    # This is disabled until after the Zabbix 4 upgrade
+                    # due to the "history" and "trends" field in the items
+                    # changing meaning from "14" meaning "14 days" to "14
+                    # seconds".
+                    # Clean out expired items before we remove duplicates
+
+                    # for x in clean_expired_items(
+                    #    table=table,
+                    #    year=date.year,
+                    #    month=date.month,
+                    #    retention=FAST_WINDOW,
+                    # ):
+                    #    with prelude_cursor(c) as curs:
+                    #        execute(curs, x)
+                    #
                     # Remove duplicated rows from tables before we cluster them
                     for x in clean_duplicate_items(
                         table=table, year=date.year, month=date.month
@@ -424,7 +434,8 @@ def oneshot_maintenance_operation(table="history", year=2018, month=12):
     yield from ensure_brin_index(table=table, year=year, month=month)
     yield from clean_old_indexes(table=table, year=year, month=month)
     yield from clean_old_items(table=table, year=year, month=month)
-    yield from clean_expired_items(table=table, year=year, month=month)
+    # 2021-05: Disabled due to zabbix4 upgrade
+    #    yield from clean_expired_items(table=table, year=year, month=month)
     yield from clean_duplicate_items(table=table, year=year, month=month)
     yield from cluster_table(table=table, year=year, month=month)
 
