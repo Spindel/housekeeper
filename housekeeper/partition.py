@@ -10,7 +10,7 @@ def gen_partitions(table="history_part"):
         )
 
         yield from ensure_btree_index(
-            table=table, year=date.year, month=date.month, concurrently=False
+            table=table, year=date.year, month=date.month
         )
 
 

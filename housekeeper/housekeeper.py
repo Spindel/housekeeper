@@ -55,12 +55,11 @@ def clean_old_indexes(table="history", year=2011, month=12):
             yield cleanup.format(oldindex)
 
 
-def ensure_btree_index(table="history", year=2011, month=12, concurrently=True):
+def ensure_btree_index(table="history", year=2011, month=12):
     index = get_index_name(table=table, year=year, month=month, kind="btree")
     table = get_table_name(table=table, year=year, month=month)
-    conc = "CONCURRENTLY" if concurrently else ""
     with log_state(step="ensure_btree_index", table=table, index=index):
-        yield f"CREATE INDEX {conc} IF NOT EXISTS {index} on {table} using btree (itemid, clock);"
+        yield f"CREATE INDEX IF NOT EXISTS {index} on {table} using btree (itemid, clock);"
 
 
 def ensure_brin_index(table="history", year=2011, month=12):
@@ -68,7 +67,7 @@ def ensure_brin_index(table="history", year=2011, month=12):
     table = get_table_name(table=table, year=year, month=month)
     with log_state(step="ensure_brin_index", index=index, table=table):
         yield (
-            f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {index} on {table} "
+            f"CREATE INDEX IF NOT EXISTS {index} on {table} "
             f"USING brin (itemid, clock) WITH (pages_per_range='16');"
         )
 
