@@ -53,7 +53,7 @@ CREATE_ROOT = {
                           ns INTEGER NOT NULL);""",
 
     "history_text": """CREATE TABLE IF NOT EXISTS {tablename} (
-                          id BIGINT NOT NULL,
+                          id BIGINT NULL,
                           itemid BIGINT NOT NULL,
                           clock INTEGER NOT NULL CHECK (clock >= {start} AND clock < {stop}),
                           value TEXT NOT NULL,
@@ -66,6 +66,14 @@ CREATE_ROOT = {
                           value NUMERIC(20,0) NOT NULL,
                           ns INTEGER NOT NULL);""",
 }
+
+# 2021-07: Spindel
+# once all instances run Zabbix 4, this should become:
+# ALTER TABLE IF EXISTS {tablename} DROP COLUMN IF EXISTS id
+ALTER_ROOT = {
+    "archive_text": """ALTER TABLE IF EXISTS {tablename} ALTER COLUMN id DROP NOT NULL;"""
+}
+
 
 FOREIGN_NAMES = {
     "history": "archive",
@@ -126,12 +134,21 @@ def migrate_setup(username="example.com", password="0000-0000-0000-0000", host='
     print(dedent(as_postgres))
 
 
+def alter_archive_table(table="archive", year=2011, month=12):
+    """This alters the archive table for Zabbix 4.0 compatibility."""
+    tablename = get_table_name(table=table, year=year, month=month)
+    if table in ALTER_ROOT:
+        alter = ALTER_ROOT[table]
+        yield alter.format(tablename=tablename)
+
+
 def create_archive_table(table="history", year=2011, month=12):
     tname = FOREIGN_NAMES[table]
     create = CREATE_ROOT[table]
     tablename = get_table_name(table=tname, year=year, month=month)
     start, stop = get_start_and_stop(year=year, month=month)
     yield create.format(tablename=tablename, start=start, stop=stop)
+    yield from alter_archive_table(table=tname, year=year, month=month)
     yield from ensure_brin_index(table=tname, year=year, month=month)
 
 
