@@ -6,6 +6,7 @@ from textwrap import dedent
 from datetime import timedelta, date
 
 import structlog
+import psycopg2
 
 
 from .logs import log_state
@@ -45,6 +46,22 @@ def log_and_reset_notices(conn):
     for n, msg in enumerate(conn.notices):
         log.info("DB notice", notice_no=n, notice=msg)
     conn.notices.clear()
+
+
+@contextmanager
+def connect_autocommit(connstr: str):
+    """Yield a psycopg2 connection in autocommit mode.
+
+    connstr is the same argument as psycopg2.connect.
+    """
+    conn = None
+    try:
+        conn = psycopg2.connect(connstr)
+        conn.set_session(autocommit=True)  # Don't implicitly open a transaction
+        yield conn
+    finally:
+        if conn:
+            conn.close()
 
 
 @contextmanager

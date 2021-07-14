@@ -2,9 +2,8 @@
 import sys
 import datetime
 
-import psycopg2
-
 from .helpers import (
+    connect_autocommit,
     housekeeper_connstring,
     execute,
     prelude_cursor,
@@ -323,9 +322,7 @@ def clean_old_sessions():
 def do_maintenance(connstr, cluster=False):
     tables = ("history", "history_uint", "history_text", "history_str")
 
-    with psycopg2.connect(connstr) as c:
-        c.autocommit = True  # Don't implicitly open a transaction
-
+    with connect_autocommit(connstr) as c:
         # Delete old sessions. Zabbix API "logout" call implicitly logs out
         # all sessions instead of just the current one.
         with prelude_cursor(c) as curs:
@@ -460,10 +457,9 @@ def oneshot_maintenance():
 def do_oneshot_maintenance(connstr):
     tables = ("history", "history_uint", "history_text", "history_str")
 
-    with psycopg2.connect(connstr) as c:
-        c.autocommit = True  # Don't implicitly open a transaction
-        # Move config items out
+    with connect_autocommit(connstr) as c:
 
+        # Move config items out
         with prelude_cursor(c) as curs:
             for x in migrate_config_items():
                 execute(curs, x)
