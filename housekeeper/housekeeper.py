@@ -366,7 +366,7 @@ def do_maintenance(connstr, cluster=False):
                         execute(curs, x)
 
         for n, date in enumerate(months_for_year_past()):
-            previous_month = n == 0
+            fresh_table = n <= 1
             for table in tables:
                 # Clean out undesired indexes
                 for x in clean_old_indexes(
@@ -384,7 +384,7 @@ def do_maintenance(connstr, cluster=False):
                         with prelude_cursor(c) as curs:
                             execute(curs, x)
 
-                if not previous_month:
+                if not fresh_table:
                     for x in clean_btree_index(
                         table=table, year=date.year, month=date.month
                     ):
