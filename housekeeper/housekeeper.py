@@ -2,9 +2,8 @@
 import sys
 import datetime
 
-import psycopg2
-
 from .helpers import (
+    connect_autocommit,
     housekeeper_connstring,
     execute,
     prelude_cursor,
@@ -55,11 +54,12 @@ def clean_old_indexes(table="history", year=2011, month=12):
             yield cleanup.format(oldindex)
 
 
-def ensure_btree_index(table="history", year=2011, month=12):
+def ensure_btree_index(table="history", year=2011, month=12, concurrently=True):
     index = get_index_name(table=table, year=year, month=month, kind="btree")
     table = get_table_name(table=table, year=year, month=month)
+    conc = "CONCURRENTLY" if concurrently else ""
     with log_state(step="ensure_btree_index", table=table, index=index):
-        yield f"CREATE INDEX IF NOT EXISTS {index} on {table} using btree (itemid, clock);"
+        yield f"CREATE INDEX {conc} IF NOT EXISTS {index} on {table} using btree (itemid, clock);"
 
 
 def ensure_brin_index(table="history", year=2011, month=12):
@@ -67,7 +67,7 @@ def ensure_brin_index(table="history", year=2011, month=12):
     table = get_table_name(table=table, year=year, month=month)
     with log_state(step="ensure_brin_index", index=index, table=table):
         yield (
-            f"CREATE INDEX IF NOT EXISTS {index} on {table} "
+            f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {index} on {table} "
             f"USING brin (itemid, clock) WITH (pages_per_range='16');"
         )
 
@@ -323,9 +323,7 @@ def clean_old_sessions():
 def do_maintenance(connstr, cluster=False):
     tables = ("history", "history_uint", "history_text", "history_str")
 
-    with psycopg2.connect(connstr) as c:
-        c.autocommit = True  # Don't implicitly open a transaction
-
+    with connect_autocommit(connstr) as c:
         # Delete old sessions. Zabbix API "logout" call implicitly logs out
         # all sessions instead of just the current one.
         with prelude_cursor(c) as curs:
@@ -369,7 +367,7 @@ def do_maintenance(connstr, cluster=False):
                         execute(curs, x)
 
         for n, date in enumerate(months_for_year_past()):
-            previous_month = n == 0
+            fresh_table = n <= 1
             for table in tables:
                 # Clean out undesired indexes
                 for x in clean_old_indexes(
@@ -387,7 +385,7 @@ def do_maintenance(connstr, cluster=False):
                         with prelude_cursor(c) as curs:
                             execute(curs, x)
 
-                if not previous_month:
+                if not fresh_table:
                     for x in clean_btree_index(
                         table=table, year=date.year, month=date.month
                     ):
@@ -460,10 +458,9 @@ def oneshot_maintenance():
 def do_oneshot_maintenance(connstr):
     tables = ("history", "history_uint", "history_text", "history_str")
 
-    with psycopg2.connect(connstr) as c:
-        c.autocommit = True  # Don't implicitly open a transaction
-        # Move config items out
+    with connect_autocommit(connstr) as c:
 
+        # Move config items out
         with prelude_cursor(c) as curs:
             for x in migrate_config_items():
                 execute(curs, x)

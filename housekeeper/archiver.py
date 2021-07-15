@@ -21,6 +21,7 @@ from .times import (
 from .helpers import (
     get_table_name,
     archive_connstring,
+    connect_autocommit,
     housekeeper_connstring,
     execute,
     sql_if_tables_exist,
@@ -331,8 +332,7 @@ def migrate_table_to_archive(table="history", year=2011, month=12):
 def archive_maintenance(connstr):
     tables = ("history", "history_uint", "history_text", "history_str")
 
-    with psycopg2.connect(connstr) as c:
-        c.autocommit = True  # Don't implicitly open a transaction
+    with connect_autocommit(connstr) as c:
         with log_state(stage="archive_maintenance"):
             for date in months_for_year_ahead():
                 for table in tables:
@@ -353,9 +353,7 @@ def migrate_data(source_connstr, dest_connstr):
     retention = get_retention()
     end = get_month_before_retention(retention=retention)
 
-    with psycopg2.connect(source_connstr) as source, psycopg2.connect(dest_connstr) as dest:
-        source.autocommit = True  # Don't implicitly open a transaction
-        dest.autocommit = True
+    with connect_autocommit(source_connstr) as source, connect_autocommit(dest_connstr) as dest:
 
         for conn in (source, dest):
             with prelude_cursor(conn) as curs:
@@ -403,8 +401,7 @@ def oneshot_cluster(connstr):
     retention = get_retention()
     end = get_month_before_retention(retention=retention)
 
-    with psycopg2.connect(connstr) as conn:
-        conn.autocommit = True  # Don't implicitly open a transaction
+    with connect_autocommit(connstr) as conn:
         for date in months_between(to_date=end):
             for table in tables:
                 if should_archive_cluster(conn, table=table, year=date.year, month=date.month):
@@ -418,8 +415,7 @@ def oneshot_dedupe(connstr):
     retention = get_retention()
     end = get_month_before_retention(retention=retention)
 
-    with psycopg2.connect(connstr) as conn:
-        conn.autocommit = True  # Don't implicitly open a transaction
+    with connect_autocommit(connstr) as conn:
         for date in months_between(to_date=end):
             for table in tables:
                 if should_archive_cluster(conn, table=table, year=date.year, month=date.month):
@@ -433,9 +429,7 @@ def oneshot_archive(connstr):
     retention = get_retention()
     end = get_month_before_retention(retention=retention)
 
-    with psycopg2.connect(connstr) as conn:
-        conn.autocommit = True  # Don't implicitly open a transaction
-
+    with connect_autocommit(connstr) as conn:
         for date in months_between(to_date=end):
             for table in tables:
                 for x in create_archive_table(table=table, year=date.year, month=date.month):
