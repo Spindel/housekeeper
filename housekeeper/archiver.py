@@ -24,7 +24,6 @@ from .helpers import (
     connect_autocommit,
     housekeeper_connstring,
     execute,
-    sql_if_tables_exist,
     table_exists,
     prelude_cursor,
     log_and_reset_notices,
@@ -303,7 +302,23 @@ def python_migrate_table_to_archive(src_conn, dst_conn, table="history", year=20
             execute(curs, x)
 
 
+def sql_if_tables_exist(tables, query_iter):
+    """Make sure to manually open a transaction around this function."""
+    count = len(tables)
+    tables_string = ", ".join("'{}'".format(t) for t in tables)
+    query_string = "\n".join(x for x in query_iter)
+    yield dedent(
+        f"""
+        DO $$ BEGIN
+        IF (SELECT COUNT(*)={count} FROM information_schema.tables WHERE table_name IN ({tables_string})) THEN
+        {query_string}
+        END IF; END $$;
+        """
+    )
+
+
 def swap_live_and_archive_tables(table="history", year=2011, month=12):
+    """Make sure to manually open a transaction around this."""
     original_tablename = get_table_name(table=table, year=year, month=month)
 
     query_iter = itertools.chain(
@@ -314,6 +329,7 @@ def swap_live_and_archive_tables(table="history", year=2011, month=12):
 
 
 def migrate_table_to_archive(table="history", year=2011, month=12):
+    """Make sure to manually open a transaction around this."""
     tname = FOREIGN_NAMES[table]
     original_tablename = get_table_name(table=table, year=year, month=month)
     remote_tablename = get_table_name(table=tname, year=year, month=month)
@@ -397,9 +413,12 @@ def migrate_data(source_connstr, dest_connstr):
                 log_and_reset_notices(conn=dest)
                 # Then we do the slow performance one that also cleans out the
                 # tables.
-                with prelude_cursor(source) as curs:
-                    for x in migrate_table_to_archive(table=table, year=date.year, month=date.month):
-                        execute(curs, x)
+
+                # Explicitly open a transaction
+                with source:
+                    with prelude_cursor(source) as curs:
+                        for x in migrate_table_to_archive(table=table, year=date.year, month=date.month):
+                            execute(curs, x)
 
 
 def oneshot_cluster(connstr):
