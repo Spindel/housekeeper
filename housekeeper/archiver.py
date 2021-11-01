@@ -378,12 +378,18 @@ def migrate_data(source_connstr, dest_connstr):
                         with prelude_cursor(source) as curs:
                             execute(curs, x)
 
-                with prelude_cursor(source) as curs:
-                    for x in swap_live_and_archive_tables(table=table, year=date.year, month=date.month):
-                        try:
-                            execute(curs, x)
-                        except psycopg2.ProgrammingError:
-                            pass
+                # It's important to use try/catch outside the "with" statement,
+                # otherwise psycopg2 does not call rollback() on the
+                # transaction, leaving us in a broken state.
+                try:
+                    # Explicitly open a transaction
+                    with source:
+                        with prelude_cursor(source) as curs:
+                            for x in swap_live_and_archive_tables(table=table, year=date.year, month=date.month):
+                                execute(curs, x)
+                except psycopg2.ProgrammingError as exc:
+                    _log.warning("Error swapping table. Maybe already done?", exc=exc)
+
                 # First we do the high performance COPY operation
                 python_migrate_table_to_archive(src_conn=source, dst_conn=dest,
                                                 table=table, year=date.year, month=date.month)
