@@ -24,7 +24,6 @@ from .helpers import (
     connect_autocommit,
     housekeeper_connstring,
     execute,
-    sql_if_tables_exist,
     table_exists,
     prelude_cursor,
     log_and_reset_notices,
@@ -303,7 +302,23 @@ def python_migrate_table_to_archive(src_conn, dst_conn, table="history", year=20
             execute(curs, x)
 
 
+def sql_if_tables_exist(tables, query_iter):
+    """Make sure to manually open a transaction around this function."""
+    count = len(tables)
+    tables_string = ", ".join("'{}'".format(t) for t in tables)
+    query_string = "\n".join(x for x in query_iter)
+    yield dedent(
+        f"""
+        DO $$ BEGIN
+        IF (SELECT COUNT(*)={count} FROM information_schema.tables WHERE table_name IN ({tables_string})) THEN
+        {query_string}
+        END IF; END $$;
+        """
+    )
+
+
 def swap_live_and_archive_tables(table="history", year=2011, month=12):
+    """Make sure to manually open a transaction around this."""
     original_tablename = get_table_name(table=table, year=year, month=month)
 
     query_iter = itertools.chain(
@@ -314,6 +329,7 @@ def swap_live_and_archive_tables(table="history", year=2011, month=12):
 
 
 def migrate_table_to_archive(table="history", year=2011, month=12):
+    """Make sure to manually open a transaction around this."""
     tname = FOREIGN_NAMES[table]
     original_tablename = get_table_name(table=table, year=year, month=month)
     remote_tablename = get_table_name(table=tname, year=year, month=month)
@@ -347,20 +363,26 @@ def archive_maintenance(connstr):
                             execute(curs, x)
 
 
+def connect_check(connstr):
+    """Tests that a connection string works."""
+    with connect_autocommit(connstr) as conn:
+        # Make a select to test that we can connect
+        with prelude_cursor(conn) as curs:
+            execute(curs, "SELECT 1;")
+
+
 def migrate_data(source_connstr, dest_connstr):
     tables = ("history",  "history_uint", "history_text", "history_str")
 
     retention = get_retention()
     end = get_month_before_retention(retention=retention)
 
-    with connect_autocommit(source_connstr) as source, connect_autocommit(dest_connstr) as dest:
+    connect_check(source_connstr)
+    connect_check(dest_connstr)
 
-        for conn in (source, dest):
-            with prelude_cursor(conn) as curs:
-                execute(curs, "SELECT 1;")
-
-        for date in months_between(to_date=end):
-            for table in tables:
+    for date in months_between(to_date=end):
+        for table in tables:
+            with connect_autocommit(source_connstr) as source:
                 # Should_maintain checks that the table exists first
                 if should_maintain(conn=source, table=table, year=date.year, month=date.month):
                     # First clean up old (deleted) items
@@ -378,11 +400,12 @@ def migrate_data(source_connstr, dest_connstr):
                         with prelude_cursor(source) as curs:
                             execute(curs, x)
 
+            with connect_autocommit(source_connstr) as source, connect_autocommit(dest_connstr) as dest:
                 # It's important to use try/catch outside the "with" statement,
                 # otherwise psycopg2 does not call rollback() on the
                 # transaction, leaving us in a broken state.
                 try:
-                    # Explicitly open a transaction
+                    # by using "with <connection>" we explicitly open a transaction
                     with source:
                         with prelude_cursor(source) as curs:
                             for x in swap_live_and_archive_tables(table=table, year=date.year, month=date.month):
@@ -397,9 +420,12 @@ def migrate_data(source_connstr, dest_connstr):
                 log_and_reset_notices(conn=dest)
                 # Then we do the slow performance one that also cleans out the
                 # tables.
-                with prelude_cursor(source) as curs:
-                    for x in migrate_table_to_archive(table=table, year=date.year, month=date.month):
-                        execute(curs, x)
+
+                # Explicitly open a transaction
+                with source:
+                    with prelude_cursor(source) as curs:
+                        for x in migrate_table_to_archive(table=table, year=date.year, month=date.month):
+                            execute(curs, x)
 
 
 def oneshot_cluster(connstr):
