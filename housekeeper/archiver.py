@@ -363,20 +363,26 @@ def archive_maintenance(connstr):
                             execute(curs, x)
 
 
+def connect_check(connstr):
+    """Tests that a connection string works."""
+    with connect_autocommit(connstr) as conn:
+        # Make a select to test that we can connect
+        with prelude_cursor(conn) as curs:
+            execute(curs, "SELECT 1;")
+
+
 def migrate_data(source_connstr, dest_connstr):
     tables = ("history",  "history_uint", "history_text", "history_str")
 
     retention = get_retention()
     end = get_month_before_retention(retention=retention)
 
-    with connect_autocommit(source_connstr) as source, connect_autocommit(dest_connstr) as dest:
+    connect_check(source_connstr)
+    connect_check(dest_connstr)
 
-        for conn in (source, dest):
-            with prelude_cursor(conn) as curs:
-                execute(curs, "SELECT 1;")
-
-        for date in months_between(to_date=end):
-            for table in tables:
+    for date in months_between(to_date=end):
+        for table in tables:
+            with connect_autocommit(source_connstr) as source:
                 # Should_maintain checks that the table exists first
                 if should_maintain(conn=source, table=table, year=date.year, month=date.month):
                     # First clean up old (deleted) items
@@ -394,11 +400,12 @@ def migrate_data(source_connstr, dest_connstr):
                         with prelude_cursor(source) as curs:
                             execute(curs, x)
 
+            with connect_autocommit(source_connstr) as source, connect_autocommit(dest_connstr) as dest:
                 # It's important to use try/catch outside the "with" statement,
                 # otherwise psycopg2 does not call rollback() on the
                 # transaction, leaving us in a broken state.
                 try:
-                    # Explicitly open a transaction
+                    # by using "with <connection>" we explicitly open a transaction
                     with source:
                         with prelude_cursor(source) as curs:
                             for x in swap_live_and_archive_tables(table=table, year=date.year, month=date.month):
