@@ -166,8 +166,9 @@ def clean_expired_items(table="history", year=2012, month=12,
     """Generates a DELETE statement on the table to clean out "old" data.
 
     Old is defined as the zabbix way, "items.history" is a string of a
-    timestamp, and compared to
-    our `retention` input data days"""
+    time interval (1, 1d, 1w) and compared to our `retention` input data which
+    is in n days.
+    """
     retention = int(retention)
     if retention < 14:
         raise ValueError("We do not touch the 14 days of fast data.")
