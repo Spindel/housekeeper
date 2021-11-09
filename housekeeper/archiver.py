@@ -35,7 +35,7 @@ from .housekeeper import (
     do_cluster_operation,
     clean_duplicate_items,
     clean_old_items,
-    # clean_expired_items,
+    clean_expired_items,
     should_maintain,
 )
 
@@ -390,10 +390,9 @@ def migrate_data(source_connstr, dest_connstr):
                         with prelude_cursor(source) as curs:
                             execute(curs, x)
                     # Then clean out expired items (should be deleted)
-                    # 2021-05: Disabled until Zabbix 4 migration is complete
-                    # for x in clean_expired_items(table=table, year=date.year, month=date.month, retention=retention):
-                    #    with prelude_cursor(source) as curs:
-                    #        execute(curs, x)
+                    for x in clean_expired_items(table=table, year=date.year, month=date.month, retention=retention):
+                        with prelude_cursor(source) as curs:
+                            execute(curs, x)
 
                     # Then clean up duplicate data ( warning, slow)
                     for x in clean_duplicate_items(table=table, year=date.year, month=date.month):
