@@ -451,35 +451,39 @@ def oneshot_prune(archive_connstr, source_connstr):
             with connect_autocommit(archive_connstr) as archive:
                 # Check that it exists first.
                 if should_maintain(conn=archive, table=table, year=date.year, month=date.month):
-                    with archive:
-                        with prelude_cursor(archive) as curs:
-                            for x in ensure_btree_index(table=table, year=date.year, month=date.month):
-                                execute(curs, x)
+                    # Note that this must not be run inside a transaction
+                    with prelude_cursor(archive) as curs:
+                        for x in ensure_btree_index(table=table, year=date.year, month=date.month):
+                            execute(curs, x)
 
             # Now on the main db to remove the old items
             with connect_autocommit(source_connstr) as source:
                 # Should_maintain checks that the table exists first
                 if should_maintain(conn=source, table=table, year=date.year, month=date.month):
                     # First clean up old (deleted) items
-                    with prelude_cursor(source) as curs:
-                        for x in clean_old_items(table=table, year=date.year, month=date.month):
-                            execute(curs, x)
+                    for x in clean_old_items(table=table, year=date.year, month=date.month):
+                        with source:
+                            with prelude_cursor(source) as curs:
+                                execute(curs, x)
 
                     # Then clean out expired items (should be deleted)
-                        for x in clean_expired_items(table=table, year=date.year, month=date.month,
-                                                     retention=retention):
-                            execute(curs, x)
+                    for x in clean_expired_items(table=table, year=date.year, month=date.month, retention=retention):
+                        with source:
+                            with prelude_cursor(source) as curs:
+                                execute(curs, x)
 
             # Now we can do the rest on the archive machine
             with connect_autocommit(archive_connstr) as archive:
                 # Check that it exists first.
                 if should_maintain(conn=archive, table=table, year=date.year, month=date.month):
-                    with prelude_cursor(archive) as curs:
-                        # clean up duplicate data (warning, slow)
-                        for x in clean_duplicate_items(table=table, year=date.year, month=date.month):
+                    # clean up duplicate data (warning, slow) (must not be in
+                    # transaction)
+                    for x in clean_duplicate_items(table=table, year=date.year, month=date.month):
+                        with prelude_cursor(archive) as curs:
                             execute(curs, x)
 
                         # run "cluster" on the table (warning, slow)
+                    with prelude_cursor(archive) as curs:
                         for x in do_cluster_operation(table=table, year=date.year, month=date.month):
                             execute(curs, x)
 
