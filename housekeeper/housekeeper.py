@@ -114,7 +114,7 @@ def clean_duplicate_items(table="history", year=2011, month=12, batch_seconds=33
     We don't parse the entire month at once, but in minor batches to make life
     better for the database and cut down on amount of temp/sort space needed.
     """
-    if table == "history_text":
+    if table in ("history_text", "archive_text"):
         return
     partition = get_table_name(table=table, year=year, month=month)
     start_time, end_time = get_start_and_stop(year=year, month=month)

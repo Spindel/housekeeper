@@ -24,6 +24,8 @@ from .helpers import (
     connect_autocommit,
     housekeeper_connstring,
     execute,
+    prelude_execute,
+    prelude_execute_transaction,
     table_exists,
     prelude_cursor,
     log_and_reset_notices,
@@ -32,6 +34,7 @@ from .logs import setup_logging, log_state
 
 from .housekeeper import (
     ensure_brin_index,
+    ensure_btree_index,
     do_cluster_operation,
     clean_duplicate_items,
     clean_old_items,
@@ -164,6 +167,24 @@ def create_foreign_table(table="history", year=2011, month=12, remote="archive")
     yield dedent(f"""
         CREATE FOREIGN TABLE IF NOT EXISTS {tablename}
         PARTITION OF {table} FOR VALUES FROM ({start}) TO ({stop}) SERVER {remote};""")
+
+
+def archive_btree_index(table="history", year=2011, month=12):
+    """Ensure a btree index exists on an archive table. Assumes the table exists"""
+    arname = FOREIGN_NAMES[table]
+    yield from ensure_btree_index(table=arname, year=year, month=month)
+
+
+def archive_clean_old_items(table="history", year=2011, month=12):
+    """Ensure a btree index exists on an archive table. Assumes the table exists"""
+    arname = FOREIGN_NAMES[table]
+    yield from clean_old_items(table=arname, year=year, month=month)
+
+
+def archive_clean_expired_items(table="history", year=2011, month=12):
+    """Ensure a btree index exists on an archive table. Assumes the table exists"""
+    arname = FOREIGN_NAMES[table]
+    yield from clean_expired_items(table=arname, year=year, month=month)
 
 
 def archive_cluster(table="history", year=2011, month=12):
@@ -427,6 +448,62 @@ def migrate_data(source_connstr, dest_connstr):
                             execute(curs, x)
 
 
+def oneshot_prune(archive_connstr, source_connstr):
+    """Cleans out archived data-tables from the following:
+
+        - Deleted items
+        - points not in history window
+        - duplicated items
+
+    And fter that, it clusters the table."""
+
+    tables = ("history", "history_uint", "history_text", "history_str")
+    retention = get_retention()
+    end = get_month_before_retention(retention=retention)
+
+    connect_check(archive_connstr)
+    connect_check(source_connstr)
+
+    for date in months_between(to_date=end):
+        for table in tables:
+            # First we ensure that the table has a btree index.
+            # This needs to happen on the remote database.
+            with connect_autocommit(archive_connstr) as archive:
+                # Check that it exists first.
+                if should_archive_cluster(conn=archive, table=table, year=date.year, month=date.month):
+                    # Note that this must not be run inside a transaction
+                    for x in alter_archive_table(table=table, year=date.year, month=date.month):
+                        prelude_execute(archive, x)
+                    for x in archive_btree_index(table=table, year=date.year, month=date.month):
+                        prelude_execute(archive, x)
+
+            # Now on the main db to remove the old items
+            with connect_autocommit(source_connstr) as source:
+                # Should_maintain checks that the table exists first
+                if should_archive_cluster(conn=source, table=table, year=date.year, month=date.month):
+                    # First clean up old (deleted) items
+                    for x in archive_clean_old_items(table=table, year=date.year, month=date.month):
+                        prelude_execute_transaction(source, x)
+
+                    # Then clean out expired items (should be deleted)
+                    for x in archive_clean_expired_items(table=table, year=date.year,
+                                                         month=date.month, retention=retention):
+                        prelude_execute_transaction(source, x)
+
+            # Now we can do the rest on the archive machine
+            with connect_autocommit(archive_connstr) as archive:
+                # Check that it exists first.
+                if should_archive_cluster(conn=archive, table=table, year=date.year, month=date.month):
+                    # clean up duplicate data (warning, slow) (must not be in
+                    # transaction)
+                    for x in archive_dedupe(table=table, year=date.year, month=date.month):
+                        prelude_execute(archive, x)
+
+                    # run "cluster" on the table (warning, slow)
+                    for x in archive_cluster(table=table, year=date.year, month=date.month):
+                        prelude_execute(archive, x)
+
+
 def oneshot_cluster(connstr):
     tables = ("history", "history_uint", "history_text", "history_str")
     retention = get_retention()
@@ -507,6 +584,11 @@ def main():
     elif command == "oneshot_cluster":
         archive_connstr = archive_connstring()
         oneshot_cluster(archive_connstr)
+    elif command == "oneshot_prune":
+        archive_connstr = archive_connstring()
+        source_connstr = housekeeper_connstring()
+        oneshot_prune(archive_connstr=archive_connstr,
+                      source_connstr=source_connstr)
     elif command == "dedupe":
         archive_connstr = archive_connstring()
         oneshot_dedupe(archive_connstr)

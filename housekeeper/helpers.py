@@ -85,6 +85,21 @@ def execute(cursor, query):
     return result
 
 
+def prelude_execute_transaction(conn, query):
+    """Run the query in a transaction, after running the prelude"""
+    with conn:
+        with prelude_cursor(conn) as curs:
+            res = execute(curs, query)
+    return res
+
+
+def prelude_execute(conn, query):
+    """Run the query after executing the prelude."""
+    with prelude_cursor(conn) as curs:
+        res = execute(curs, query)
+    return res
+
+
 def housekeeper_connstring():
     return env_connstring(prefix="HOUSEKEEPER")
 
