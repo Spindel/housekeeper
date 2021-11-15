@@ -5,6 +5,7 @@ import itertools
 import threading
 import time
 import psycopg2
+import datetime
 
 import structlog
 
@@ -459,12 +460,13 @@ def oneshot_prune(archive_connstr, source_connstr):
 
     tables = ("history", "history_uint", "history_text", "history_str")
     retention = get_retention()
+    start = datetime.date(2021, 1, 1)
     end = get_month_before_retention(retention=retention)
 
     connect_check(archive_connstr)
     connect_check(source_connstr)
 
-    for date in months_between(to_date=end):
+    for date in months_between(from_date=start, to_date=end):
         for table in tables:
             # First we ensure that the table has a btree index.
             # This needs to happen on the remote database.
