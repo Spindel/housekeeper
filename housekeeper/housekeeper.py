@@ -191,6 +191,7 @@ AND T1.itemid IN (
   SELECT itemid FROM items WHERE
      (items.history::INTERVAL > INTERVAL '1d') AND
      (items.history::INTERVAL < (INTERVAL '1d' * {retention}))
+)
 AND T1.clock < extract('epoch' from current_timestamp - INTERVAL '{retention} days');"""
 
 
