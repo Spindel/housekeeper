@@ -188,10 +188,11 @@ def clean_expired_items(table="history", year=2012, month=12,
             yield f"""DELETE FROM {tablename} T1
 WHERE T1.clock BETWEEN {start} AND {stop}
 AND T1.itemid IN (
-  SELECT itemid FROM items WHERE
-     (items.history::INTERVAL > INTERVAL '1d') AND
-     (items.history::INTERVAL < (INTERVAL '1d' * {retention}))
-AND T1.clock < extract('epoch' from current_timestamp - INTERVAL '{retention} days');"""
+    SELECT itemid FROM items
+    WHERE items.history::INTERVAL > INTERVAL '1d'
+    AND   items.history::INTERVAL < INTERVAL '{retention} days'
+)
+AND T1.clock < EXTRACT('epoch' FROM current_timestamp - INTERVAL '{retention} days');"""
 
 
 @log_step
